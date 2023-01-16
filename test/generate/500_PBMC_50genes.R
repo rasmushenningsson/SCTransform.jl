@@ -1,7 +1,7 @@
 library(sctransform)
 library(Seurat)
 
-filename = "../../SingleCell10x/data/500_PBMC_3p_LT_Chromium_X_50genes/filtered_feature_bc_matrix.h5"
+filename = "../data/500_PBMC_50genes/filtered_feature_bc_matrix.h5"
 
 raw.data = Read10X_h5(filename)
 
