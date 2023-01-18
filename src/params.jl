@@ -342,12 +342,12 @@ Threading details:
 
 
 # Examples
-Compute the SCTransform with default parameters (Gene Expression data):
+Compute SCTransform parameter estimates (Gene Expression features):
 ```
 julia> scparams(X, features)
 ```
 
-Compute the SCTransform for antibody capture features:
+Compute SCTransform parameter estimates (Antibody Capture features):
 ```
 julia> scparams(X, features; feature_type="Antibody Capture")
 ```
