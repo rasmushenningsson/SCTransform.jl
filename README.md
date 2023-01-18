@@ -7,6 +7,6 @@ Here is [the original R implementation of sctransform](https://github.com/satija
 
 ## Usage
 The doc strings for `scparams` and `sctransform` describe the usage.
-Also see [SingleCellProjections.jl](https://github.com/rasmushenningsson/SingleCellProjections.jl) package which provides a framework for working with Single Cell expression data and supports `SCTransform.jl`.
+Also see the [SingleCellProjections.jl](https://github.com/rasmushenningsson/SingleCellProjections.jl) package which provides a framework for working with Single Cell expression data and supports `SCTransform.jl`.
 
 Note that [threading](https://docs.julialang.org/en/v1/manual/multi-threading/) should be enabled in Julia for `SCTransform.jl` to work optimally.
