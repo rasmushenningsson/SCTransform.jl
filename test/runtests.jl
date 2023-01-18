@@ -1,5 +1,6 @@
 using Test
 using SCTransform
+using SCTransform: scparams_estimate, scparams_detect_outliers, scparams_bandwidth, scparams_regularize
 using SingleCell10x
 
 using DelimitedFiles

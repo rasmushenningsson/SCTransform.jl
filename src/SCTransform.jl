@@ -2,10 +2,6 @@ module SCTransform
 
 export
 	scparams,
-	scparams_estimate,
-	scparams_detect_outliers,
-	scparams_bandwidth,
-	scparams_regularize,
 	sctransform
 
 using LinearAlgebra
