@@ -1,5 +1,8 @@
 # SCTransform.jl
 
+[![Build Status](https://github.com/rasmushenningsson/SCTransform.jl/actions/workflows/CI.yml/badge.svg?branch=main)](https://github.com/rasmushenningsson/SCTransform.jl/actions/workflows/CI.yml?query=branch%3Amain)
+[![Coverage](https://codecov.io/gh/rasmushenningsson/SCTransform.jl/branch/main/graph/badge.svg)](https://codecov.io/gh/rasmushenningsson/SCTransform.jl)
+
 This is a Julia implementation of [sctransform](https://github.com/satijalab/sctransform), based on the paper [Normalization and variance stabilization of single-cell RNA-seq data using regularized negative binomial regression](https://doi.org/10.1186/s13059-019-1874-1) by Hafemaister and Satija.
 
 This is an independent implementation, the original authors were not involved.
