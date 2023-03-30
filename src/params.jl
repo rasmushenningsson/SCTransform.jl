@@ -378,7 +378,7 @@ function scparams(::Type{T}, X::AbstractSparseMatrix, features;
 	if cache_read && isfile(fn_cached)
 		params = _scparams_cache_load(fn_cached, P, N, method, min_cells)
 		if params !== nothing
-			@info "SCTransform parameters loaded from cache."
+			verbose && @info "SCTransform parameters loaded from cache."
 			touch(fn_cached) # update file timestamp (in case we want to remove old cached files later)
 		end
 	end
