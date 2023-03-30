@@ -1,7 +1,7 @@
 name = "SCTransform"
 uuid = "f56ea72b-d1ea-403e-9c0c-95d94e8a8532"
 authors = ["Rasmus Henningsson <rasmus.henningsson@med.lu.se>"]
-version = "0.1.0"
+version = "0.1.1"
 
 [deps]
 CodecZlib = "944b1d66-785c-5afd-91f1-9de20f533193"
