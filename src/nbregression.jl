@@ -304,7 +304,7 @@ struct NBByPoissionScratch
 	μ::Vector{Float64}
 	logμ::Vector{Float64}
 end
-NBByPoissionScratch(N::Int) = NBByPoissionScratch(zeros(2),zeros(1),zeros(N),zeros(N))
+NBByPoissionScratch(N::Integer) = NBByPoissionScratch(zeros(2),zeros(1),zeros(N),zeros(N))
 
 """
 	nbparamsbypoisson(y::Union{Vector,SparseVector}, c::Vector; verbose=false)
