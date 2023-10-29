@@ -25,6 +25,7 @@ Optim = "1.2"
 ProgressMeter = "1"
 Scratch = "1.1"
 SpecialFunctions = "0.10, 1, 2"
+Statistics = "1"
 julia = "1.8"
 
 [extras]
