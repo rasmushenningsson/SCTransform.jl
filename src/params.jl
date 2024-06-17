@@ -4,7 +4,29 @@
 # logcellcounts(X::SparseMatrixCSC) = log10.(max.(1,vec(sum(X;dims=2))))
 
 # Assumes each column is a cell
-logcellcounts(X::SparseMatrixCSC) = log10.(max.(1,vec(sum(X;dims=1))))
+# logcellcounts(X::SparseMatrixCSC) = log10.(max.(1,vec(sum(X;dims=1))))
+
+
+# Assumes each column is a cell
+function logcellcounts(X::SparseMatrixCSC, feature_mask)
+	P,N = size(X)
+	@assert length(feature_mask)==P
+	out = zeros(N)
+
+	# TODO: Can we make this a bit faster? If it wasn't for the feature_mask, it would just be sum(X;dims=1)
+	R = rowvals(X)
+	V = nonzeros(X)
+	for j=1:N
+		s = sum(nzrange(X,j); init=0) do k
+			V[k]*feature_mask[R[k]]
+		end
+
+		out[j] = log10(max(1,s))
+	end
+
+	out
+end
+
 
 # Assumes each column is a gene
 # function loggenemean(X::SparseMatrixCSC)
@@ -101,7 +123,7 @@ function scparams_estimate(::Type{T}, X::AbstractSparseMatrix{Tv,Ti};
 	nthreads = max(nthreads,1)
 	P,N = size(X)
 
-	logCellCounts=logcellcounts(X)
+	logCellCounts=logcellcounts(X, feature_mask)
 	logGeneMean=loggenemean(X)
 
 	@assert method in (:poisson, :nb) "Method must be :poisson or :nb"

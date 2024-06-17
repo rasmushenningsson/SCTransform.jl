@@ -2,6 +2,9 @@ using Test
 using SCTransform
 using SCTransform: scparams_estimate, scparams_detect_outliers, scparams_bandwidth, scparams_regularize
 using SingleCell10x
+using SparseArrays
+using Random
+using StableRNGs
 
 using DelimitedFiles
 using DataFrames
@@ -21,8 +24,24 @@ end
 maxnorm(x) = maximum(abs, x)
 
 
+simple_logcellcounts(X::SparseMatrixCSC) = log10.(max.(1,vec(sum(X;dims=1))))
+
+
 
 @testset "SCTransform.jl" begin
+	@testset "logcellcounts" begin
+		X = sprand(StableRNG(7833), 50, 40, 0.1, (rng,k)->rand(rng,1:1000,k))
+		@test SCTransform.logcellcounts(X,trues(50)) == simple_logcellcounts(X)
+
+		fm = bitrand(StableRNG(9864), 50)
+		@test SCTransform.logcellcounts(X,fm) == simple_logcellcounts(X[fm,:])
+
+		X .*= bitrand(StableRNG(5493), 1, 40)
+		dropzeros!(X)
+		@test SCTransform.logcellcounts(X,fm) == simple_logcellcounts(X[fm,:])
+	end
+
+
 	@testset "500_PBMC_50genes" begin
 		filename = "data/500_PBMC_50genes/filtered_feature_bc_matrix.h5"
 		X,f,b = read10x(filename)

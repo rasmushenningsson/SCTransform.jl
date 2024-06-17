@@ -9,7 +9,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Breaking
 
-WIP
 * `scparams` now uses `feature_mask` when computing `logcellcounts`. This is important there are multiple modalities in the data (e.g. Gene Expression and Antibody counts.)
+* `sctransform` now takes `feature_mask` parameter, which controls which features are used to compute `logcellcounts`. Defaults to only using "Gene Expression" features.
 * Caching of `scparams` results now uses `StableHashTraits` for hashing.
-* `sctransform` now takes `feature_mask` parameter, which controls which features are used to compute `logcellcounts`.
