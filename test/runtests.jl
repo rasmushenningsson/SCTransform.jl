@@ -43,17 +43,20 @@ simple_logcellcounts(X::SparseMatrixCSC) = log10.(max.(1,vec(sum(X;dims=1))))
 
 
 	@testset "500_PBMC_50genes" begin
-		filename = "data/500_PBMC_50genes/filtered_feature_bc_matrix.h5"
+		data_path = joinpath(pkgdir(SCTransform), "test/data")
+
+
+		filename = joinpath(data_path, "500_PBMC_50genes/filtered_feature_bc_matrix.h5")
 		X,f,b = read10x(filename)
 
-		pnonreg_ans = read_model_pars("data/500_PBMC_50genes/model_pars.csv")
-		gm_ans = readdlm("data/500_PBMC_50genes/genemean.csv", Float64)
+		pnonreg_ans = read_model_pars(joinpath(data_path, "500_PBMC_50genes/model_pars.csv"))
+		gm_ans = readdlm(joinpath(data_path, "500_PBMC_50genes/genemean.csv"), Float64)
 
-		pnonreg_ans2 = read_model_pars("data/500_PBMC_50genes/model_pars2.csv")
+		pnonreg_ans2 = read_model_pars(joinpath(data_path, "500_PBMC_50genes/model_pars2.csv"))
 		bw_ans2 = 0.243867597143564
-		preg_ans2 = read_model_pars("data/500_PBMC_50genes/model_pars_fit2.csv")
-		gm_ans2 = readdlm("data/500_PBMC_50genes/genemean2.csv", Float64)
-		Z_ans2 = readdlm("data/500_PBMC_50genes/transformed2_every_10th_cell.csv", ',', Float64)
+		preg_ans2 = read_model_pars(joinpath(data_path, "500_PBMC_50genes/model_pars_fit2.csv"))
+		gm_ans2 = readdlm(joinpath(data_path, "500_PBMC_50genes/genemean2.csv"), Float64)
+		Z_ans2 = readdlm(joinpath(data_path, "500_PBMC_50genes/transformed2_every_10th_cell.csv"), ',', Float64)
 
 
 
@@ -165,6 +168,33 @@ simple_logcellcounts(X::SparseMatrixCSC) = log10.(max.(1,vec(sum(X;dims=1))))
 			           beta1 = preg2.beta1[1:2],
 			           theta = preg2.theta[1:2])
 			@test_throws DomainError sctransform(X2, f2, preg3)
+		end
+
+
+		@testset "feature_mask" begin
+			f_ind = setdiff(1:50, [2,18,33,35,50]) # remove some variables that are excluded by scparams - i.e. they will only affect logcellcounts!
+
+			# Ground truth by actually removing the variables
+			X3 = X[f_ind,:]
+			f3 = SCTransform.subset_rows(f, f_ind) # TODO: avoid using internal function
+			preg3 = scparams(X3, f3; use_cache=false)
+			Z3 = sctransform(X3, f3, preg3)
+
+			# Test by only excluding the varaibles using feature_mask
+			feature_mask = falses(50)
+			feature_mask[f_ind] .= true
+			preg_fm = scparams(X, f; feature_mask, use_cache=false)
+			Z_fm = sctransform(X, f, preg_fm; feature_mask)
+
+			@test preg_fm == preg3
+			@test Z_fm ≈ Z3
+
+
+			# Sanity check that it's different from including all genes - i.e. using the feature_mask and thus changing logcellcount makes a difference
+			preg = scparams(X, f; use_cache=false)
+			@test preg != preg_fm
+			Z = sctransform(X, f, preg)
+			@test !(Z_fm ≈ Z)
 		end
 
 	end
