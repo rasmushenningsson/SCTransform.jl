@@ -1,4 +1,4 @@
-const SCPARAMS_VERSION = v"0.1.1" # TODO: change to 0.2
+const SCPARAMS_VERSION = v"0.2.0"
 
 function _scparams_checksum(X::SparseMatrixCSC, method, min_cells, feature_mask)
 	@assert method in (:poisson, :nb) "Method must be :poisson or :nb"
