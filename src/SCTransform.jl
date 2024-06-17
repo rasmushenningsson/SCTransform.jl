@@ -15,6 +15,7 @@ using Scratch
 using SHA
 using DelimitedFiles
 using CodecZlib
+using StableHashTraits
 
 include("utils.jl")
 include("table.jl")

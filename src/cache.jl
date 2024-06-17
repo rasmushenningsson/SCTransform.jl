@@ -1,57 +1,11 @@
-# Here is a 64 bit hash implementation that
-# * Is stable across versions (unless we choose to change it ourselves)
-# * Takes all elements of a vector into account
-# * Is reasonable fast (otherwise we would've used sha256)
+const SCPARAMS_VERSION = v"0.1.1" # TODO: change to 0.2
 
-function _hash(n::UInt64) # copied from Julia Base hash_64_64 (MIT license)
-    a::UInt64 = n
-    a = ~a + a << 21
-    a =  a ⊻ a >> 24
-    a =  a + a << 3 + a << 8
-    a =  a ⊻ a >> 14
-    a =  a + a << 2 + a << 4
-    a =  a ⊻ a >> 28
-    a =  a + a << 31
-    return a
-end
-_hash(n::UInt32) = _hash(UInt64(n))
-_hash(n::Union{Bool,UInt32}) = _hash(UInt64(n))
-
-_hash(n,h::UInt64) = _hash(n) - 3h
-
-function _fullhash_impl(v, h=UInt(0))
-	for x in v
-		h = _hash(x,h)
-	end
-	h
-end
-
-_fullhash(v::AbstractVector{Float64}, h=UInt64(0)) = _fullhash_impl(reinterpret(UInt64,v), h)
-_fullhash(v::AbstractVector{Int64}, h=UInt64(0)) = _fullhash_impl(reinterpret(UInt64,v), h)
-_fullhash(v::AbstractVector{Float32}, h=UInt64(0)) = _fullhash_impl(reinterpret(UInt32,v), h)
-_fullhash(v::AbstractVector{Int32}, h=UInt64(0)) = _fullhash_impl(reinterpret(UInt32,v), h)
-_fullhash(v, h=UInt64(0)) = _fullhash_impl(v, h)
-
-
-
-const SCPARAMS_VERSION = v"0.1.0"
-
-function _scparams_checksum(X::SparseMatrixCSC,method,min_cells,feature_mask)
+function _scparams_checksum(X::SparseMatrixCSC, method, min_cells, feature_mask)
 	@assert method in (:poisson, :nb) "Method must be :poisson or :nb"
 	P,N = size(X)
 
-	h = String[]
-	push!(h, string(P))
-	push!(h, string(N))
-	push!(h, string(_fullhash(X.colptr)))
-	push!(h, string(_fullhash(X.rowval)))
-	push!(h, string(_fullhash(X.nzval)))
-	push!(h, string(method))
-	push!(h, string(min_cells))
-	push!(h, string(_fullhash(feature_mask)))
-	push!(h, string(SCPARAMS_VERSION))
-
-	h = bytes2hex(sha256(join(h,"__<sep>__")))
+	tup = (P, N, X.colptr, X.rowval, X.nzval, method, min_cells, feature_mask, SCPARAMS_VERSION)
+	bytes2hex(stable_hash(tup; version=3))
 end
 
 function _scparams_cache_convert_column(data, type)
