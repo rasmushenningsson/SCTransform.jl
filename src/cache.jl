@@ -1,6 +1,6 @@
 const SCPARAMS_VERSION = v"0.2.0"
 
-function _scparams_checksum(X::SparseMatrixCSC, method, min_cells, feature_mask)
+function _scparams_checksum(X::SparseMatrixCSC, method::Symbol, min_cells::Int, feature_mask::BitVector)
 	@assert method in (:poisson, :nb) "Method must be :poisson or :nb"
 	P,N = size(X)
 

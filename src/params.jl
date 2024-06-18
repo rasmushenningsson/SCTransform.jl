@@ -378,7 +378,7 @@ See also: [`sctransform`](@ref)
 """
 function scparams(::Type{T}, X::AbstractSparseMatrix, features;
                   method=:poisson,
-                  min_cells::Integer=5,
+                  min_cells::Int=5,
                   feature_type = hasproperty(features, :feature_type) ? "Gene Expression" : nothing,
                   feature_mask = feature_type !== nothing ? features.feature_type.==feature_type : trues(size(X,1)),
                   feature_names = hasproperty(features,:name) ? features.name : features.id,
@@ -389,6 +389,7 @@ function scparams(::Type{T}, X::AbstractSparseMatrix, features;
                   kwargs...) where T
 	P,N = size(X)
 	length(feature_names) == P || throw(DimensionMismatch("The number of rows in the count matrix and the number of features do not match."))
+	feature_mask = convert(BitVector, feature_mask)
 
 	if cache_read || cache_write
 		h = _scparams_checksum(X,method,min_cells,feature_mask)
