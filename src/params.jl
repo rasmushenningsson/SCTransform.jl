@@ -4,7 +4,29 @@
 # logcellcounts(X::SparseMatrixCSC) = log10.(max.(1,vec(sum(X;dims=2))))
 
 # Assumes each column is a cell
-logcellcounts(X::SparseMatrixCSC) = log10.(max.(1,vec(sum(X;dims=1))))
+# logcellcounts(X::SparseMatrixCSC) = log10.(max.(1,vec(sum(X;dims=1))))
+
+
+# Assumes each column is a cell
+function logcellcounts(X::SparseMatrixCSC, feature_mask)
+	P,N = size(X)
+	@assert length(feature_mask)==P
+	out = zeros(N)
+
+	# TODO: Can we make this a bit faster? If it wasn't for the feature_mask, it would just be sum(X;dims=1)
+	R = rowvals(X)
+	V = nonzeros(X)
+	for j=1:N
+		s = sum(nzrange(X,j); init=0) do k
+			V[k]*feature_mask[R[k]]
+		end
+
+		out[j] = log10(max(1,s))
+	end
+
+	out
+end
+
 
 # Assumes each column is a gene
 # function loggenemean(X::SparseMatrixCSC)
@@ -101,7 +123,7 @@ function scparams_estimate(::Type{T}, X::AbstractSparseMatrix{Tv,Ti};
 	nthreads = max(nthreads,1)
 	P,N = size(X)
 
-	logCellCounts=logcellcounts(X)
+	logCellCounts=logcellcounts(X, feature_mask)
 	logGeneMean=loggenemean(X)
 
 	@assert method in (:poisson, :nb) "Method must be :poisson or :nb"
@@ -356,7 +378,7 @@ See also: [`sctransform`](@ref)
 """
 function scparams(::Type{T}, X::AbstractSparseMatrix, features;
                   method=:poisson,
-                  min_cells::Integer=5,
+                  min_cells::Int=5,
                   feature_type = hasproperty(features, :feature_type) ? "Gene Expression" : nothing,
                   feature_mask = feature_type !== nothing ? features.feature_type.==feature_type : trues(size(X,1)),
                   feature_names = hasproperty(features,:name) ? features.name : features.id,
@@ -367,6 +389,7 @@ function scparams(::Type{T}, X::AbstractSparseMatrix, features;
                   kwargs...) where T
 	P,N = size(X)
 	length(feature_names) == P || throw(DimensionMismatch("The number of rows in the count matrix and the number of features do not match."))
+	feature_mask = convert(BitVector, feature_mask)
 
 	if cache_read || cache_write
 		h = _scparams_checksum(X,method,min_cells,feature_mask)
