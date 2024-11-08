@@ -5,7 +5,7 @@ function _scparams_checksum(X::SparseMatrixCSC, method::Symbol, min_cells::Int, 
 	P,N = size(X)
 
 	tup = (P, N, X.colptr, X.rowval, X.nzval, method, min_cells, feature_mask, SCPARAMS_VERSION)
-	bytes2hex(stable_hash(tup; version=3))
+	bytes2hex(stable_hash(tup; version=4))
 end
 
 function _scparams_cache_convert_column(data, type)

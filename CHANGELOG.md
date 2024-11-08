@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2024-11-08
+
+### Breaking
+
+* `stable_hash` will now use hash version 4 by default, since that is the only one compatible with Julia 1.11+. It will not affect any results, but any sctransform parameters that were cached on disk will be recomputed.
+
 ## [0.2.0] - 2024-06-18
 
 ### Breaking
