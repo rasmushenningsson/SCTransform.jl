@@ -53,7 +53,7 @@ end
 
 
 
-function scparams_poisson_worker(channel, progress, N, feature_mask, logCellCounts, θ, β0, β1, θSE, outlier)
+function scparams_poisson_worker(channel, progress, N, feature_mask, log_cell_counts, θ, β0, β1, θSE, outlier)
 	scratch = NBByPoissionScratch(N)
 
 	while true
@@ -68,8 +68,8 @@ function scparams_poisson_worker(channel, progress, N, feature_mask, logCellCoun
 
 				j2 = j+feature_offset
 				try
-					θ[j2],β0[j2],β1[j2] = nbparamsbypoisson(sparseY,logCellCounts,scratch=scratch)
-					θSE[j2] = thetastandarderror(sparseY,logCellCounts,θ[j2],β0[j2],β1[j2],scratch=scratch)
+					θ[j2],β0[j2],β1[j2] = nbparamsbypoisson(sparseY,log_cell_counts,scratch=scratch)
+					θSE[j2] = thetastandarderror(sparseY,log_cell_counts,θ[j2],β0[j2],β1[j2],scratch=scratch)
 				catch e
 					outlier[j2] = true
 				end
@@ -81,7 +81,7 @@ function scparams_poisson_worker(channel, progress, N, feature_mask, logCellCoun
 end
 
 
-function scparams_nb_worker(channel, progress, N, feature_mask, logCellCounts, θ, β0, β1, θSE, outlier)
+function scparams_nb_worker(channel, progress, N, feature_mask, log_cell_counts, θ, β0, β1, θSE, outlier)
 	while true
 		item = take!(channel)
 		isnothing(item) && break # no more chunks to process
@@ -94,8 +94,8 @@ function scparams_nb_worker(channel, progress, N, feature_mask, logCellCounts, �
 				j2 = j+feature_offset
 				try
 					y = convert(Vector,sparseY) # TODO: get rid of conversion to full vector by fixing sparse version of nbparams
-					θ[j2],β0[j2],β1[j2] = nbparams(y,logCellCounts)
-					θSE[j2] = thetastandarderror(sparseY,logCellCounts,θ[j2],β0[j2],β1[j2])
+					θ[j2],β0[j2],β1[j2] = nbparams(y,log_cell_counts)
+					θSE[j2] = thetastandarderror(sparseY,log_cell_counts,θ[j2],β0[j2],β1[j2])
 				catch e
 					outlier[j2] = true
 				end
@@ -112,7 +112,7 @@ function scparams_estimate(::Type{T}, X::AbstractSparseMatrix{Tv,Ti};
                            method=:poisson,
                            feature_mask = trues(size(X,1)),
                            feature_names = nothing,
-                           logCellCounts,
+                           log_cell_counts,
                            chunk_size = 100,
                            nthreads = Threads.nthreads(),
                            channel_size = nthreads*4,
@@ -144,12 +144,12 @@ function scparams_estimate(::Type{T}, X::AbstractSparseMatrix{Tv,Ti};
 		if method==:poisson
 			Threads.@spawn scparams_poisson_worker(channel, progress,
 			                                       N, feature_mask,# feature_names,
-			                                       logCellCounts,
+			                                       log_cell_counts,
 			                                       θ, β0, β1, θSE, outlier)
 		elseif method==:nb
 			Threads.@spawn scparams_nb_worker(channel, progress,
 			                                  N, feature_mask,# feature_names,
-			                                  logCellCounts,
+			                                  log_cell_counts,
 			                                  θ, β0, β1, θSE, outlier)
 		end
 	end
@@ -342,7 +342,7 @@ scparams_regularize(params::NamedTuple, bw) = scparams_regularize(NamedTuple,par
 """
 	scparams_impl(T, X::AbstractSparseMatrix, features;
 	              method=:poisson,
-	              logCellCounts,
+	              log_cell_counts,
 	              feature_mask,
 	              feature_names = nothing,
 	              verbose=true,
@@ -355,7 +355,7 @@ Low-level driver for computing SCTransform parameter estimates from the count ma
 
 General:
 * `method` - Decides the algorithm for parameter inference. Can be either `:poisson` or `:nb` (negative binomial). We recommend `:poisson`, which first makes `poission` estimates and then estimates disperation afterwards.
-* `logCellCounts` - Vector with `log10(max(1,c))` where `c` is the total read count of a cell.
+* `log_cell_counts` - Vector with `log10(max(1,c))` where `c` is the total read count of a cell.
 * `feature_mask` - Vector of booleans deciding which features to use.
 * `feature_names` - Vector with name for each feature. Only used for `@warn` messages. Set to `nothing` to not report feature names.
 * `verbose` - If true, will show progress bar and some other information.
@@ -477,11 +477,11 @@ function scparams(::Type{T}, X::AbstractSparseMatrix, features;
 	end
 
 	if params === nothing
-		# NB: logCellCounts should not be affected by min_cells_mask
-		logCellCounts = logcellcounts(X, feature_mask_lcc)
+		# NB: log_cell_counts should not be affected by min_cells_mask
+		log_cell_counts = logcellcounts(X, feature_mask_lcc)
 
 
-		params = scparams_impl(X; method, logCellCounts, feature_mask, feature_names, verbose, kwargs...)
+		params = scparams_impl(X; method, log_cell_counts, feature_mask, feature_names, verbose, kwargs...)
 
 		if cache_write
 			_scparams_cache_save(fn_cached, params, P, N, method)
