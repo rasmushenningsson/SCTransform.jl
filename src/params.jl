@@ -339,6 +339,27 @@ scparams_regularize(params::NamedTuple, bw) = scparams_regularize(NamedTuple,par
 
 
 
+
+function scparams_impl(X; verbose, kwargs...)
+	# 1. fit per gene
+	params = scparams_estimate(NamedTuple, X; verbose, kwargs...)
+
+	# 2. detect outliers
+	scparams_detect_outliers!(params)
+
+	# 3. Compute bandwidth, ignoring outlier values
+	# NB: In the SCTransform paper, this was multiplied by 3. However, because of different scaling in ksmooth, a factor of quantile(Normal(),0.75)/0.25 ≈ 2.6979590007843273 would have been correct. Since gaussiansmoothing below uses the same scaling as bwsj, we do not rescale.
+	bw = scparams_bandwidth(params) # TODO: pass on bwsj kwargs?
+	verbose && @info "Bandwidth $bw"
+
+	# 4. Evaluate smoothed function at all genes
+	params = scparams_regularize(NamedTuple, params, bw)
+
+	params
+end
+
+
+
 """
 	scparams([T], X::AbstractSparseMatrix, features;
 	         method=:poisson,
@@ -405,7 +426,9 @@ function scparams(::Type{T}, X::AbstractSparseMatrix, features;
                   verbose = true,
                   kwargs...) where T
 	P,N = size(X)
-	length(feature_names) == P || throw(DimensionMismatch("The number of rows in the count matrix and the number of features do not match."))
+	if feature_names !== nothing && length(feature_names) != P
+		throw(DimensionMismatch("The number of rows in the count matrix and the number of features do not match."))
+	end
 	feature_mask = convert(BitVector, feature_mask)
 
 	if cache_read || cache_write
@@ -432,19 +455,7 @@ function scparams(::Type{T}, X::AbstractSparseMatrix, features;
 		min_cells_mask = vec(sum(!iszero, X; dims=2)) .>= min_cells
 		feature_mask = feature_mask .& min_cells_mask
 
-		# 1. fit per gene
-		params = scparams_estimate(NamedTuple, X; method, logCellCounts, feature_mask, feature_names, verbose, kwargs...)
-
-		# 2. detect outliers
-		scparams_detect_outliers!(params)
-
-		# 3. Compute bandwidth, ignoring outlier values
-		# NB: In the SCTransform paper, this was multiplied by 3. However, because of different scaling in ksmooth, a factor of quantile(Normal(),0.75)/0.25 ≈ 2.6979590007843273 would have been correct. Since gaussiansmoothing below uses the same scaling as bwsj, we do not rescale.
-		bw = scparams_bandwidth(params) # TODO: pass on bwsj kwargs?
-		verbose && @info "Bandwidth $bw"
-
-		# 4. Evaluate smoothed function at all genes
-		params = scparams_regularize(NamedTuple, params, bw)
+		params = scparams_impl(X; method, logCellCounts, feature_mask, feature_names, verbose, kwargs...)
 
 		if cache_write
 			_scparams_cache_save(fn_cached, params, P, N, method, min_cells)
