@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Breaking
+
+* Features for which the parameter estimation fails (very rare) are now marked as outliers instead of being removed.
+
+### Fixed
+
+* Fix potential (but unlikely) data race due to a BitVector being accessed from multiple threads
+
 ## [0.3.1] - 2024-12-31
 
 ### Fixed

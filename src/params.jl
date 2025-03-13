@@ -53,7 +53,7 @@ end
 
 
 
-function scparams_poisson_worker(channel, progress, N, feature_mask, feature_names, logCellCounts, θ, β0, β1, θSE, kept)
+function scparams_poisson_worker(channel, progress, N, feature_mask, feature_names, logCellCounts, θ, β0, β1, θSE, outlier)
 	scratch = NBByPoissionScratch(N)
 
 	while true
@@ -70,8 +70,8 @@ function scparams_poisson_worker(channel, progress, N, feature_mask, feature_nam
 				try
 					θ[j2],β0[j2],β1[j2] = nbparamsbypoisson(sparseY,logCellCounts,scratch=scratch)
 					θSE[j2] = thetastandarderror(sparseY,logCellCounts,θ[j2],β0[j2],β1[j2],scratch=scratch)
-					kept[j2] = true
 				catch e
+					outlier[j2] = true
 					@warn "Failed to compute SCTransform parameters for feature $(feature_names[j2]), skipping."
 				end
 			end
@@ -82,7 +82,7 @@ function scparams_poisson_worker(channel, progress, N, feature_mask, feature_nam
 end
 
 
-function scparams_nb_worker(channel, progress, N, feature_mask, feature_names, logCellCounts, θ, β0, β1, θSE, kept)
+function scparams_nb_worker(channel, progress, N, feature_mask, feature_names, logCellCounts, θ, β0, β1, θSE, outlier)
 	while true
 		item = take!(channel)
 		isnothing(item) && break # no more chunks to process
@@ -97,8 +97,8 @@ function scparams_nb_worker(channel, progress, N, feature_mask, feature_names, l
 					y = convert(Vector,sparseY) # TODO: get rid of conversion to full vector by fixing sparse version of nbparams
 					θ[j2],β0[j2],β1[j2] = nbparams(y,logCellCounts)
 					θSE[j2] = thetastandarderror(sparseY,logCellCounts,θ[j2],β0[j2],β1[j2])
-					kept[j2] = true
 				catch e
+					outlier[j2] = true
 					@warn "Failed to compute SCTransform parameters for feature $(feature_names[j2]), skipping."
 				end
 			end
@@ -133,7 +133,8 @@ function scparams_estimate(::Type{T}, X::AbstractSparseMatrix{Tv,Ti};
 	β0   = zeros(P)
 	β1   = zeros(P)
 	θSE  = zeros(P)
-	kept = falses(P)
+	outlier = fill(false, P) # NB: Create Vector{Bool} instead of BitVector to avoid data races between worker threads!!!
+
 
 	progress = verbose ? Progress(P; desc="Estimating sc parameters: ") : nothing
 
@@ -146,12 +147,12 @@ function scparams_estimate(::Type{T}, X::AbstractSparseMatrix{Tv,Ti};
 			Threads.@spawn scparams_poisson_worker(channel, progress,
 			                                       N, feature_mask, feature_names,
 			                                       logCellCounts,
-			                                       θ, β0, β1, θSE, kept)
+			                                       θ, β0, β1, θSE, outlier)
 		elseif method==:nb
 			Threads.@spawn scparams_nb_worker(channel, progress,
 			                                  N, feature_mask, feature_names,
 			                                  logCellCounts,
-			                                  θ, β0, β1, θSE, kept)
+			                                  θ, β0, β1, θSE, outlier)
 		end
 	end
 
@@ -215,9 +216,17 @@ function scparams_estimate(::Type{T}, X::AbstractSparseMatrix{Tv,Ti};
 	wait.(workers)
 	isnothing(progress) || finish!(progress)
 
-	@assert any(kept) "SC Parameter estimation failed - no features remaining."
+	@assert !all(outlier) "SC Parameter estimation failed - no features remaining."
 
-	T((; featureInd=(1:P)[kept], logGeneMean=logGeneMean[kept], beta0_estimate=β0[kept], beta1_estimate=β1[kept], theta_estimate=θ[kept], thetaSE_estimate=θSE[kept]))
+	T((;
+		featureInd = (1:P)[feature_mask],
+		logGeneMean = logGeneMean[feature_mask],
+		beta0_estimate = β0[feature_mask],
+		beta1_estimate = β1[feature_mask],
+		theta_estimate = θ[feature_mask],
+		thetaSE_estimate = θSE[feature_mask],
+		outlier = outlier[feature_mask],
+	 ))
 end
 
 
@@ -260,8 +269,12 @@ function windowedoutlierscore(x::AbstractVector, y::AbstractVector, d::Real)
 end
 
 
-function scparams_detect_outliers(::Type{T}, params) where T
-	mask = params.thetaSE_estimate.<=4 # flag extremely unreliable theta estimates as outliers
+function scparams_detect_outliers!(params)
+	# Flag a feature as an outlier if either:
+	# *	the nbparams estimate failed or
+	# *	the theta estimate is extremely unreliable
+	mask = (.!params.outlier) .& (params.thetaSE_estimate.<=4)
+
 	rows = (1:length(params.logGeneMean))[mask] # to match original rows later
 
 	# Work with sorted data
@@ -280,14 +293,11 @@ function scparams_detect_outliers(::Type{T}, params) where T
 
 	# Go back to original order
 	invpermute!(outliers, perm)
-	outliers2 = trues(length(params.featureInd))
-	outliers2[rows] .= outliers
+	params.outlier .= true
+	params.outlier[rows] .= outliers
 
-	T(hcat_tables(params, (;outlier=outliers2)))
+	params
 end
-
-scparams_detect_outliers(params::T) where T = scparams_detect_outliers(T,params)
-scparams_detect_outliers(params::NamedTuple) = scparams_detect_outliers(NamedTuple,params) # strip NamedTuple parameters
 
 
 
@@ -418,7 +428,7 @@ function scparams(::Type{T}, X::AbstractSparseMatrix, features;
 		params = scparams_estimate(NamedTuple, X; method, logCellCounts, feature_mask, feature_names, verbose, kwargs...)
 
 		# 2. detect outliers
-		params = scparams_detect_outliers(NamedTuple, params)
+		scparams_detect_outliers!(params)
 
 		# 3. Compute bandwidth, ignoring outlier values
 		# NB: In the SCTransform paper, this was multiplied by 3. However, because of different scaling in ksmooth, a factor of quantile(Normal(),0.75)/0.25 ≈ 2.6979590007843273 would have been correct. Since gaussiansmoothing below uses the same scaling as bwsj, we do not rescale.

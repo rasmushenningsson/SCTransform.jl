@@ -1,6 +1,6 @@
 using Test
 using SCTransform
-using SCTransform: scparams_estimate, scparams_detect_outliers, scparams_bandwidth, scparams_regularize
+using SCTransform: scparams_estimate, scparams_detect_outliers!, scparams_bandwidth, scparams_regularize
 using SingleCell10x
 using SparseArrays
 using Random
@@ -103,14 +103,14 @@ simple_logcellcounts(X::SparseMatrixCSC) = log10.(max.(1,vec(sum(X;dims=1))))
 				@test pnonreg.theta_estimate ≈ pnonreg_ans2.theta atol=0.5
 
 
-				pnonreg2 = scparams_detect_outliers(pnonreg)
-				@test pnonreg2 isa TableType
+				scparams_detect_outliers!(pnonreg)
+				@test pnonreg isa TableType
 
-				bw = scparams_bandwidth(pnonreg2)
+				bw = scparams_bandwidth(pnonreg)
 				@test bw ≈ bw_ans2 rtol=0.1
 
 				# --- Inexact comparisons below, since the bandwidths etc. differ a bit ---
-				preg = scparams_regularize(pnonreg2,bw)
+				preg = scparams_regularize(pnonreg,bw)
 				@test preg isa TableType
 
 				@test f.name[f_ind][preg.featureInd] == preg_ans2.genename
