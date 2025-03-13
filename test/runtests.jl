@@ -67,7 +67,7 @@ simple_logcellcounts(X::SparseMatrixCSC) = log10.(max.(1,vec(sum(X;dims=1))))
 				pnonreg = scparams_estimate(TableType, X; logCellCounts, feature_mask, chunk_size=20, feature_names=f.name)
 				@test pnonreg isa TableType
 
-				@test f.name[pnonreg.featureInd] == pnonreg_ans.genename
+				@test f.name[feature_mask] == pnonreg_ans.genename
 
 				@test pnonreg.logGeneMean ≈ gm_ans
 				@test pnonreg.beta0_estimate ≈ pnonreg_ans.beta0
@@ -95,7 +95,7 @@ simple_logcellcounts(X::SparseMatrixCSC) = log10.(max.(1,vec(sum(X;dims=1))))
 				pnonreg = scparams_estimate(TableType, X2; logCellCounts, feature_mask, chunk_size=19, feature_names=f2.name)
 				@test pnonreg isa TableType
 
-				@test f.name[f_ind][pnonreg.featureInd] == pnonreg_ans2.genename
+				@test f.name[f_ind][feature_mask] == pnonreg_ans2.genename
 
 				@test pnonreg.logGeneMean ≈ gm_ans2
 				@test pnonreg.beta0_estimate ≈ pnonreg_ans2.beta0
@@ -113,7 +113,7 @@ simple_logcellcounts(X::SparseMatrixCSC) = log10.(max.(1,vec(sum(X;dims=1))))
 				preg = scparams_regularize(pnonreg,bw)
 				@test preg isa TableType
 
-				@test f.name[f_ind][preg.featureInd] == preg_ans2.genename
+				@test f.name[f_ind][feature_mask] == preg_ans2.genename
 
 				@test preg.logGeneMean ≈ gm_ans2
 				@test preg.beta0 ≈ preg_ans2.beta0 norm=maxnorm atol=0.2 # We might be able to tighten this
@@ -124,7 +124,6 @@ simple_logcellcounts(X::SparseMatrixCSC) = log10.(max.(1,vec(sum(X;dims=1))))
 				@test preg2 isa TableType
 
 				@test preg2.name == pnonreg_ans2.genename
-				@test !hasproperty(preg2,:featureInd)
 
 				@test preg2.logGeneMean ≈ gm_ans2
 				@test preg2.beta0 ≈ preg_ans2.beta0 norm=maxnorm atol=0.2 # We might be able to tighten this

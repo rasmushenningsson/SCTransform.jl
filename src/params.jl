@@ -227,7 +227,6 @@ function scparams_estimate(::Type{T}, X::AbstractSparseMatrix{Tv,Ti};
 	@assert !all(outlier) "SC Parameter estimation failed - no features remaining."
 
 	T((;
-		featureInd = (1:P)[feature_mask],
 		logGeneMean = logGeneMean[feature_mask],
 		beta0_estimate = β0[feature_mask],
 		beta1_estimate = β1[feature_mask],
@@ -382,7 +381,7 @@ By default, the results are cached in a scratch space using `Scratch.jl`, to avo
 
 General:
 * `method` - Decides the algorithm for parameter inference. Can be either `:poisson` or `:nb` (negative binomial). We recommend `:poisson`, which first makes `poission` estimates and then estimates disperation afterwards.
-* `feature_names` - Vector with name for each feature. Only used for `@warn` messages. Defaults to `name` column in `features`, or `id` column if name doesn't exist.
+* `feature_names` - Vector with name for each feature. Only used for `@warn` messages. Defaults to `name` column in `features`, or `id` column if name doesn't exist. Set to `nothing` to not report feature names.
 * `verbose` - If true, will show progress bar and some other information.
 
 Feature selection:
@@ -463,8 +462,7 @@ function scparams(::Type{T}, X::AbstractSparseMatrix, features;
 	end
 
 	# 5. Combine with feature annotations
-	features_subset = subset_rows(features, params.featureInd)
-	params = remove_columns(params, (:featureInd,))
+	features_subset = subset_rows(features, feature_mask)
 	T(hcat_tables(features_subset, params))
 end
 
