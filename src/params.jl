@@ -53,7 +53,7 @@ end
 
 
 
-function scparams_poisson_worker(channel, progress, N, feature_mask, feature_names, logCellCounts, min_cells, θ, β0, β1, θSE, kept)
+function scparams_poisson_worker(channel, progress, N, feature_mask, feature_names, logCellCounts, θ, β0, β1, θSE, kept)
 	scratch = NBByPoissionScratch(N)
 
 	while true
@@ -63,7 +63,7 @@ function scparams_poisson_worker(channel, progress, N, feature_mask, feature_nam
 
 		X,feature_offset = item
 		for j in 1:size(X,2)
-			if length(nzrange(X,j)) >= min_cells && feature_mask[j+feature_offset]
+			if feature_mask[j+feature_offset]
 				sparseY = X[:,j]
 
 				j2 = j+feature_offset
@@ -82,14 +82,14 @@ function scparams_poisson_worker(channel, progress, N, feature_mask, feature_nam
 end
 
 
-function scparams_nb_worker(channel, progress, N, feature_mask, feature_names, logCellCounts, min_cells, θ, β0, β1, θSE, kept)
+function scparams_nb_worker(channel, progress, N, feature_mask, feature_names, logCellCounts, θ, β0, β1, θSE, kept)
 	while true
 		item = take!(channel)
 		isnothing(item) && break # no more chunks to process
 
 		X,feature_offset = item
 		for j in 1:size(X,2)
-			if length(nzrange(X,j)) >= min_cells && feature_mask[j+feature_offset]
+			if feature_mask[j+feature_offset]
 				sparseY = X[:,j]
 
 				j2 = j+feature_offset
@@ -112,18 +112,17 @@ end
 
 function scparams_estimate(::Type{T}, X::AbstractSparseMatrix{Tv,Ti};
                            method=:poisson,
-                           min_cells::Integer=5,
                            feature_mask = trues(size(X,1)),
                            feature_names,
-                           chunk_size=100,
-                           nthreads=Threads.nthreads(),
-                           channel_size=nthreads*4,
-                           verbose=true,
+                           logCellCounts,
+                           chunk_size = 100,
+                           nthreads = Threads.nthreads(),
+                           channel_size = nthreads*4,
+                           verbose = true,
                           ) where {T,Tv<:Real,Ti<:Integer}
 	nthreads = max(nthreads,1)
 	P,N = size(X)
 
-	logCellCounts=logcellcounts(X, feature_mask)
 	logGeneMean=loggenemean(X)
 
 	@assert method in (:poisson, :nb) "Method must be :poisson or :nb"
@@ -146,12 +145,12 @@ function scparams_estimate(::Type{T}, X::AbstractSparseMatrix{Tv,Ti};
 		if method==:poisson
 			Threads.@spawn scparams_poisson_worker(channel, progress,
 			                                       N, feature_mask, feature_names,
-			                                       logCellCounts, min_cells,
+			                                       logCellCounts,
 			                                       θ, β0, β1, θSE, kept)
 		elseif method==:nb
 			Threads.@spawn scparams_nb_worker(channel, progress,
 			                                  N, feature_mask, feature_names,
-			                                  logCellCounts, min_cells,
+			                                  logCellCounts,
 			                                  θ, β0, β1, θSE, kept)
 		end
 	end
@@ -378,14 +377,14 @@ See also: [`sctransform`](@ref)
 """
 function scparams(::Type{T}, X::AbstractSparseMatrix, features;
                   method=:poisson,
-                  min_cells::Int=5,
+                  min_cells::Int = 5,
                   feature_type = hasproperty(features, :feature_type) ? "Gene Expression" : nothing,
                   feature_mask = feature_type !== nothing ? features.feature_type.==feature_type : trues(size(X,1)),
                   feature_names = hasproperty(features,:name) ? features.name : features.id,
-                  use_cache=true,
-                  cache_read=use_cache,
-                  cache_write=use_cache,
-                  verbose=true,
+                  use_cache = true,
+                  cache_read = use_cache,
+                  cache_write = use_cache,
+                  verbose = true,
                   kwargs...) where T
 	P,N = size(X)
 	length(feature_names) == P || throw(DimensionMismatch("The number of rows in the count matrix and the number of features do not match."))
@@ -407,8 +406,16 @@ function scparams(::Type{T}, X::AbstractSparseMatrix, features;
 	end
 
 	if params === nothing
+		# NB: logCellCounts should not be affected by min_cells_mask
+		logCellCounts = logcellcounts(X, feature_mask)
+
+		# 0. Update feature_mask using min_cells
+		# TODO: Do this before computing checksum! (When we are ready for breaking changes.)
+		min_cells_mask = vec(sum(!iszero, X; dims=2)) .>= min_cells
+		feature_mask = feature_mask .& min_cells_mask
+
 		# 1. fit per gene
-		params = scparams_estimate(NamedTuple, X; method, min_cells, feature_mask, feature_names, verbose, kwargs...)
+		params = scparams_estimate(NamedTuple, X; method, logCellCounts, feature_mask, feature_names, verbose, kwargs...)
 
 		# 2. detect outliers
 		params = scparams_detect_outliers(NamedTuple, params)
@@ -427,7 +434,7 @@ function scparams(::Type{T}, X::AbstractSparseMatrix, features;
 	end
 
 	# 5. Combine with feature annotations
-	features_subset = subset_rows(features,params.featureInd)
+	features_subset = subset_rows(features, params.featureInd)
 	params = remove_columns(params, (:featureInd,))
 	T(hcat_tables(features_subset, params))
 end

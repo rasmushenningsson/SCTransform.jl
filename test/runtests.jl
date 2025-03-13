@@ -62,7 +62,9 @@ simple_logcellcounts(X::SparseMatrixCSC) = log10.(max.(1,vec(sum(X;dims=1))))
 
 		@testset "TableType=$TableType" for TableType in (NamedTuple, DataFrame)
 			@testset "Non-regularized" begin
-				pnonreg = scparams_estimate(TableType, X; chunk_size=20, feature_names=f.name)
+				logCellCounts = SCTransform.logcellcounts(X,trues(50))
+				feature_mask = vec(sum(!iszero, X; dims=2)) .>= 5
+				pnonreg = scparams_estimate(TableType, X; logCellCounts, feature_mask, chunk_size=20, feature_names=f.name)
 				@test pnonreg isa TableType
 
 				@test f.name[pnonreg.featureInd] == pnonreg_ans.genename
@@ -88,7 +90,9 @@ simple_logcellcounts(X::SparseMatrixCSC) = log10.(max.(1,vec(sum(X;dims=1))))
 				X2 = X[f_ind,:]
 				f2 = TableType(SCTransform.subset_rows(f, f_ind)) # TODO: avoid using internal function
 
-				pnonreg = scparams_estimate(TableType, X2; chunk_size=19, feature_names=f2.name)
+				logCellCounts = SCTransform.logcellcounts(X2,trues(length(f_ind)))
+				feature_mask = vec(sum(!iszero, X2; dims=2)) .>= 5
+				pnonreg = scparams_estimate(TableType, X2; logCellCounts, feature_mask, chunk_size=19, feature_names=f2.name)
 				@test pnonreg isa TableType
 
 				@test f.name[f_ind][pnonreg.featureInd] == pnonreg_ans2.genename
