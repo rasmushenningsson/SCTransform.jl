@@ -13,7 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-* Fix potential (but unlikely) data race due to a BitVector being accessed from multiple threads
+* Fix potential (but unlikely) data race due to a BitVector being accessed from multiple threads.
+* Failed inference is now report with one warning instead of one per failed feature.
 
 ## [0.3.1] - 2024-12-31
 

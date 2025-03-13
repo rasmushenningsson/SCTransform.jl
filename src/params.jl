@@ -53,7 +53,7 @@ end
 
 
 
-function scparams_poisson_worker(channel, progress, N, feature_mask, feature_names, logCellCounts, θ, β0, β1, θSE, outlier)
+function scparams_poisson_worker(channel, progress, N, feature_mask, logCellCounts, θ, β0, β1, θSE, outlier)
 	scratch = NBByPoissionScratch(N)
 
 	while true
@@ -72,7 +72,6 @@ function scparams_poisson_worker(channel, progress, N, feature_mask, feature_nam
 					θSE[j2] = thetastandarderror(sparseY,logCellCounts,θ[j2],β0[j2],β1[j2],scratch=scratch)
 				catch e
 					outlier[j2] = true
-					@warn "Failed to compute SCTransform parameters for feature $(feature_names[j2]), skipping."
 				end
 			end
 			isnothing(progress) || next!(progress)
@@ -82,7 +81,7 @@ function scparams_poisson_worker(channel, progress, N, feature_mask, feature_nam
 end
 
 
-function scparams_nb_worker(channel, progress, N, feature_mask, feature_names, logCellCounts, θ, β0, β1, θSE, outlier)
+function scparams_nb_worker(channel, progress, N, feature_mask, logCellCounts, θ, β0, β1, θSE, outlier)
 	while true
 		item = take!(channel)
 		isnothing(item) && break # no more chunks to process
@@ -99,7 +98,6 @@ function scparams_nb_worker(channel, progress, N, feature_mask, feature_names, l
 					θSE[j2] = thetastandarderror(sparseY,logCellCounts,θ[j2],β0[j2],β1[j2])
 				catch e
 					outlier[j2] = true
-					@warn "Failed to compute SCTransform parameters for feature $(feature_names[j2]), skipping."
 				end
 			end
 			isnothing(progress) || next!(progress)
@@ -113,7 +111,7 @@ end
 function scparams_estimate(::Type{T}, X::AbstractSparseMatrix{Tv,Ti};
                            method=:poisson,
                            feature_mask = trues(size(X,1)),
-                           feature_names,
+                           feature_names = nothing,
                            logCellCounts,
                            chunk_size = 100,
                            nthreads = Threads.nthreads(),
@@ -145,12 +143,12 @@ function scparams_estimate(::Type{T}, X::AbstractSparseMatrix{Tv,Ti};
 	workers = map(1:nthreads) do _
 		if method==:poisson
 			Threads.@spawn scparams_poisson_worker(channel, progress,
-			                                       N, feature_mask, feature_names,
+			                                       N, feature_mask,# feature_names,
 			                                       logCellCounts,
 			                                       θ, β0, β1, θSE, outlier)
 		elseif method==:nb
 			Threads.@spawn scparams_nb_worker(channel, progress,
-			                                  N, feature_mask, feature_names,
+			                                  N, feature_mask,# feature_names,
 			                                  logCellCounts,
 			                                  θ, β0, β1, θSE, outlier)
 		end
@@ -215,6 +213,16 @@ function scparams_estimate(::Type{T}, X::AbstractSparseMatrix{Tv,Ti};
 
 	wait.(workers)
 	isnothing(progress) || finish!(progress)
+
+
+	# report failed features
+	if any(outlier)
+		if feature_names === nothing
+			@warn "Failed to compute SCTransform parameters for $(count(outlier)) features, these will be marked as outliers."
+		else
+			@warn "Failed to compute SCTransform parameters for the following features: $(join(feature_names[outlier],", ")), these will be marked as outliers."
+		end
+	end
 
 	@assert !all(outlier) "SC Parameter estimation failed - no features remaining."
 
