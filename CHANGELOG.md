@@ -9,7 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Breaking
 
-* Features for which the parameter estimation fails (very rare) are now marked as outliers instead of being removed.
+* Features for which the parameter estimation fails (very rare) are now marked as outliers instead of being removed. For this reason, previously cached parameters will be recomputed.
+
+### Added
+
+* Low-level driver function `scparams_impl`.
 
 ### Fixed
 

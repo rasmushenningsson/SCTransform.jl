@@ -1,10 +1,10 @@
-const SCPARAMS_VERSION = v"0.2.0"
+const SCPARAMS_VERSION = v"0.4.0"
 
-function _scparams_checksum(X::SparseMatrixCSC, method::Symbol, min_cells::Int, feature_mask::BitVector)
+function _scparams_checksum(X::SparseMatrixCSC, method::Symbol, feature_mask_lcc::BitVector, feature_mask::BitVector)
 	@assert method in (:poisson, :nb) "Method must be :poisson or :nb"
 	P,N = size(X)
 
-	tup = (P, N, X.colptr, X.rowval, X.nzval, method, min_cells, feature_mask, SCPARAMS_VERSION)
+	tup = (P, N, X.colptr, X.rowval, X.nzval, method, feature_mask_lcc, feature_mask, SCPARAMS_VERSION)
 	bytes2hex(stable_hash(tup; version=4))
 end
 
@@ -24,7 +24,7 @@ function _scparams_cache_convert_column(data, type)
 	end
 end
 
-function _scparams_cache_load(fn, P, N, method, min_cells)
+function _scparams_cache_load(fn, P, N, method)
 	try
 		open(fn, "r") do io_raw
 			io = GzipDecompressorStream(io_raw)
@@ -50,11 +50,6 @@ function _scparams_cache_load(fn, P, N, method, min_cells)
 			@assert method==cached_method
 
 			line = readline(io)
-			@assert startswith(line, "#min_cells=")
-			cached_min_cells = parse(Int, line[12:end])
-			@assert min_cells==cached_min_cells
-
-			line = readline(io)
 			@assert startswith(line, "#")
 			types = split(line[2:end],'\t')
 
@@ -75,14 +70,13 @@ function _scparams_cache_load(fn, P, N, method, min_cells)
 	end
 end
 
-function _scparams_cache_save(fn, params, P, N, method, min_cells)
+function _scparams_cache_save(fn, params, P, N, method)
 	open(fn, "w") do io_raw
 		io = GzipCompressorStream(io_raw)
 		println(io, "#version=", SCPARAMS_VERSION)
 		println(io, "#P=", P)
 		println(io, "#N=", N)
 		println(io, "#method=", method)
-		println(io, "#min_cells=", min_cells)
 
 		types = [eltype(getproperty(params,col)) for col in propertynames(params)]
 		print(io, '#')
@@ -92,7 +86,6 @@ function _scparams_cache_save(fn, params, P, N, method, min_cells)
 		join(io, propertynames(params), '\t')
 		println(io)
 
-		# X = string.(Matrix(params))
 		data = [string.(getproperty(params,col)) for col in propertynames(params)]
 		data = reduce(hcat,data)
 

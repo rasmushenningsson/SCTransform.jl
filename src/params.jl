@@ -456,17 +456,20 @@ function scparams(::Type{T}, X::AbstractSparseMatrix, features;
 	if feature_names !== nothing && length(feature_names) != P
 		throw(DimensionMismatch("The number of rows in the count matrix and the number of features do not match."))
 	end
-	feature_mask = convert(BitVector, feature_mask)
+
+	feature_mask_lcc = convert(BitVector, feature_mask) # mask for computing log_cell_counts
+	min_cells_mask = vec(sum(!iszero, X; dims=2)) .>= min_cells
+	feature_mask = feature_mask_lcc .& min_cells_mask # mask for which features to estimate scparams for
 
 	if cache_read || cache_write
-		h = _scparams_checksum(X,method,min_cells,feature_mask)
+		h = _scparams_checksum(X, method, feature_mask_lcc, feature_mask)
 		fn_cached = joinpath(scparams_scratch_space[],string(h,".tsv.gz"))
 	end
 
 	# check if the results is already in the cache
 	params = nothing
 	if cache_read && isfile(fn_cached)
-		params = _scparams_cache_load(fn_cached, P, N, method, min_cells)
+		params = _scparams_cache_load(fn_cached, P, N, method)
 		if params !== nothing
 			verbose && @info "SCTransform parameters loaded from cache."
 			touch(fn_cached) # update file timestamp (in case we want to remove old cached files later)
@@ -475,17 +478,13 @@ function scparams(::Type{T}, X::AbstractSparseMatrix, features;
 
 	if params === nothing
 		# NB: logCellCounts should not be affected by min_cells_mask
-		logCellCounts = logcellcounts(X, feature_mask)
+		logCellCounts = logcellcounts(X, feature_mask_lcc)
 
-		# 0. Update feature_mask using min_cells
-		# TODO: Do this before computing checksum! (When we are ready for breaking changes.)
-		min_cells_mask = vec(sum(!iszero, X; dims=2)) .>= min_cells
-		feature_mask = feature_mask .& min_cells_mask
 
 		params = scparams_impl(X; method, logCellCounts, feature_mask, feature_names, verbose, kwargs...)
 
 		if cache_write
-			_scparams_cache_save(fn_cached, params, P, N, method, min_cells)
+			_scparams_cache_save(fn_cached, params, P, N, method)
 		end
 	end
 
