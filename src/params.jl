@@ -389,18 +389,18 @@ end
 
 """
 	scparams([T], X::AbstractSparseMatrix, features;
-	         method=:poisson,
-	         min_cells::Integer=5,
+	         method = :poisson,
+	         min_cells = 5,
 	         feature_type,
 	         feature_mask,
 	         feature_names,
-	         use_cache=true,
-	         cache_read=use_cache,
-	         cache_write=use_cache,
-	         verbose=true,
-	         chunk_size=100,
-	         nthreads=Threads.nthreads(),
-	         channel_size=nthreads*4)
+	         use_cache = true,
+	         cache_read = use_cache,
+	         cache_write = use_cache,
+	         verbose = true,
+	         chunk_size = 100,
+	         nthreads = Threads.nthreads(),
+	         channel_size = nthreads*4)
 
 Compute SCTransform parameter estimates from the count matrix `X`, with features as rows and cells as columns.
 `features` should be a table (e.g. DataFrame or NamedTuple) with feature annotations.
@@ -443,7 +443,7 @@ See also: [`sctransform`](@ref)
 """
 function scparams(::Type{T}, X::AbstractSparseMatrix, features;
                   method=:poisson,
-                  min_cells::Int = 5,
+                  min_cells = 5,
                   feature_type = hasproperty(features, :feature_type) ? "Gene Expression" : nothing,
                   feature_mask = feature_type !== nothing ? features.feature_type.==feature_type : trues(size(X,1)),
                   feature_names = hasproperty(features,:name) ? features.name : features.id,
