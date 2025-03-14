@@ -340,18 +340,18 @@ scparams_regularize(params::NamedTuple, bw) = scparams_regularize(NamedTuple,par
 
 
 """
-	compute_scparams(T, X::AbstractSparseMatrix, features;
-	                 method=:poisson,
+	compute_scparams(X::AbstractSparseMatrix;
+	                 method = :poisson,
 	                 log_cell_counts,
 	                 feature_mask,
 	                 feature_names = nothing,
-	                 verbose=true,
-	                 chunk_size=100,
-	                 nthreads=Threads.nthreads(),
-	                 channel_size=nthreads*4)
+	                 verbose = true,
+	                 chunk_size = 100,
+	                 nthreads = Threads.nthreads(),
+	                 channel_size = nthreads*4)
 
 Low-level driver for computing SCTransform parameter estimates from the count matrix `X`, with features as rows and cells as columns.
-`T` is the type of the output parameter table.
+Returns the output parameter table as a NamedTuple with the columns.
 
 General:
 * `method` - Decides the algorithm for parameter inference. Can be either `:poisson` or `:nb` (negative binomial). We recommend `:poisson`, which first makes `poission` estimates and then estimates disperation afterwards.
@@ -367,7 +367,7 @@ Threading details:
 
 See also: [`scparams`](@ref)
 """
-function compute_scparams(X; verbose, kwargs...)
+function compute_scparams(X; verbose=true, kwargs...)
 	# 1. fit per gene
 	params = scparams_estimate(NamedTuple, X; verbose, kwargs...)
 
