@@ -8,7 +8,7 @@ export
 # Use public keyword in Julia versions where it is available
 if VERSION >= v"1.11.0-DEV.469"
     let str = """
-        public scparams_impl
+        public compute_scparams
         """
         eval(Meta.parse(str))
     end

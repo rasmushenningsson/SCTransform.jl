@@ -340,15 +340,15 @@ scparams_regularize(params::NamedTuple, bw) = scparams_regularize(NamedTuple,par
 
 
 """
-	scparams_impl(T, X::AbstractSparseMatrix, features;
-	              method=:poisson,
-	              log_cell_counts,
-	              feature_mask,
-	              feature_names = nothing,
-	              verbose=true,
-	              chunk_size=100,
-	              nthreads=Threads.nthreads(),
-	              channel_size=nthreads*4)
+	compute_scparams(T, X::AbstractSparseMatrix, features;
+	                 method=:poisson,
+	                 log_cell_counts,
+	                 feature_mask,
+	                 feature_names = nothing,
+	                 verbose=true,
+	                 chunk_size=100,
+	                 nthreads=Threads.nthreads(),
+	                 channel_size=nthreads*4)
 
 Low-level driver for computing SCTransform parameter estimates from the count matrix `X`, with features as rows and cells as columns.
 `T` is the type of the output parameter table.
@@ -367,7 +367,7 @@ Threading details:
 
 See also: [`scparams`](@ref)
 """
-function scparams_impl(X; verbose, kwargs...)
+function compute_scparams(X; verbose, kwargs...)
 	# 1. fit per gene
 	params = scparams_estimate(NamedTuple, X; verbose, kwargs...)
 
@@ -481,7 +481,7 @@ function scparams(::Type{T}, X::AbstractSparseMatrix, features;
 		log_cell_counts = logcellcounts(X, feature_mask_lcc)
 
 
-		params = scparams_impl(X; method, log_cell_counts, feature_mask, feature_names, verbose, kwargs...)
+		params = compute_scparams(X; method, log_cell_counts, feature_mask, feature_names, verbose, kwargs...)
 
 		if cache_write
 			_scparams_cache_save(fn_cached, params, P, N, method)

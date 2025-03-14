@@ -13,7 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-* Low-level driver function `scparams_impl`.
+* Low-level driver function `compute_scparams`.
 
 ### Fixed
 
