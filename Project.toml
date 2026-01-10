@@ -1,7 +1,7 @@
 name = "SCTransform"
 uuid = "f56ea72b-d1ea-403e-9c0c-95d94e8a8532"
-authors = ["Rasmus Henningsson <rasmus.henningsson@med.lu.se>"]
 version = "0.3.1"
+authors = ["Rasmus Henningsson <rasmus.henningsson@med.lu.se>"]
 
 [deps]
 CodecZlib = "944b1d66-785c-5afd-91f1-9de20f533193"
@@ -23,7 +23,7 @@ DataFrames = "0.21, 0.22, 1.0"
 DelimitedFiles = "1"
 KernelDensitySJ = "0.1.1, 0.2"
 LinearAlgebra = "1"
-Optim = "1.2"
+Optim = "1.2, 2"
 ProgressMeter = "1"
 SHA = "0.7"
 Scratch = "1.1"
