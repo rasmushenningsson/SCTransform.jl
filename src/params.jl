@@ -218,13 +218,13 @@ function scparams_estimate(::Type{T}, X::AbstractSparseMatrix{Tv,Ti};
 	# report failed features
 	if any(outlier)
 		if feature_names === nothing
-			@warn "Failed to compute SCTransform parameters for $(count(outlier)) features, these will be marked as outliers."
+			@warn "Failed to compute SCTransform parameters for $(count(outlier[feature_mask]))/$(length(outlier[feature_mask])) features, these will be marked as outliers."
 		else
 			@warn "Failed to compute SCTransform parameters for the following features: $(join(feature_names[outlier],", ")), these will be marked as outliers."
 		end
 	end
 
-	@assert !all(outlier) "SC Parameter estimation failed - no features remaining."
+	@assert !all(outlier[feature_mask]) "SC Parameter estimation failed - no features remaining."
 
 	T((;
 		logGeneMean = logGeneMean[feature_mask],
