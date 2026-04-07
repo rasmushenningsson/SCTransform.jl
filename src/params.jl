@@ -107,54 +107,10 @@ function scparams_nb_worker(channel, progress, N, feature_mask, log_cell_counts,
 end
 
 
-
-function scparams_estimate(::Type{T}, X::AbstractSparseMatrix{Tv,Ti};
-                           method=:poisson,
-                           feature_mask = trues(size(X,1)),
-                           feature_names = nothing,
-                           log_cell_counts,
-                           chunk_size = 100,
-                           nthreads = Threads.nthreads(),
-                           channel_size = nthreads*4,
-                           verbose = true,
-                          ) where {T,Tv<:Real,Ti<:Integer}
-	nthreads = max(nthreads,1)
+function gene_chunk_producer(channel, X::AbstractSparseMatrix{Tv,Ti};
+                             feature_mask,
+                             chunk_size=100) where {Tv,Ti}
 	P,N = size(X)
-
-	logGeneMean=loggenemean(X)
-
-	@assert method in (:poisson, :nb) "Method must be :poisson or :nb"
-
-	@assert length(feature_mask) == P
-
-	θ    = zeros(P)
-	β0   = zeros(P)
-	β1   = zeros(P)
-	θSE  = zeros(P)
-	outlier = fill(false, P) # NB: Create Vector{Bool} instead of BitVector to avoid data races between worker threads!!!
-
-
-	progress = verbose ? Progress(P; desc="Estimating sc parameters: ") : nothing
-
-
-	channel = Channel{Union{Nothing,Tuple{SparseMatrixCSC{Tv,Ti},Int}}}(channel_size)
-
-
-	workers = map(1:nthreads) do _
-		if method==:poisson
-			Threads.@spawn scparams_poisson_worker(channel, progress,
-			                                       N, feature_mask,# feature_names,
-			                                       log_cell_counts,
-			                                       θ, β0, β1, θSE, outlier)
-		elseif method==:nb
-			Threads.@spawn scparams_nb_worker(channel, progress,
-			                                  N, feature_mask,# feature_names,
-			                                  log_cell_counts,
-			                                  θ, β0, β1, θSE, outlier)
-		end
-	end
-
-
 
 	colptr_curr = first.(nzrange.(Ref(X),1:N))
 	colptr_end = last.(nzrange.(Ref(X),1:N))
@@ -205,6 +161,57 @@ function scparams_estimate(::Type{T}, X::AbstractSparseMatrix{Tv,Ti};
 			end
 		end
 	end
+end
+
+
+function scparams_estimate(::Type{T}, ::Type{Tv}, ::Type{Ti}, X;
+                           method=:poisson,
+                           feature_mask = trues(size(X,1)),
+                           feature_names = nothing,
+                           log_cell_counts,
+                           log_gene_mean,
+                           nthreads = Threads.nthreads(),
+                           channel_size = nthreads*4,
+                           verbose = true,
+                           kwargs...,
+                          ) where {T,Tv<:Real,Ti<:Integer}
+	nthreads = max(nthreads,1)
+	P,N = size(X)
+
+	@assert method in (:poisson, :nb) "Method must be :poisson or :nb"
+
+	@assert length(feature_mask) == P
+
+	θ    = zeros(P)
+	β0   = zeros(P)
+	β1   = zeros(P)
+	θSE  = zeros(P)
+	outlier = fill(false, P) # NB: Create Vector{Bool} instead of BitVector to avoid data races between worker threads!!!
+
+
+	progress = verbose ? Progress(P; desc="Estimating sc parameters: ") : nothing
+
+
+	channel = Channel{Union{Nothing,Tuple{SparseMatrixCSC{Tv,Ti},Int}}}(channel_size)
+
+
+	workers = map(1:nthreads) do _
+		if method==:poisson
+			Threads.@spawn scparams_poisson_worker(channel, progress,
+			                                       N, feature_mask,# feature_names,
+			                                       log_cell_counts,
+			                                       θ, β0, β1, θSE, outlier)
+		elseif method==:nb
+			Threads.@spawn scparams_nb_worker(channel, progress,
+			                                  N, feature_mask,# feature_names,
+			                                  log_cell_counts,
+			                                  θ, β0, β1, θSE, outlier)
+		end
+	end
+
+
+	gene_chunk_producer(channel, X; feature_mask, kwargs...)
+
 
 	# Tell workers to stop
 	for i in 1:nthreads
@@ -227,7 +234,7 @@ function scparams_estimate(::Type{T}, X::AbstractSparseMatrix{Tv,Ti};
 	@assert !all(outlier[feature_mask]) "SC Parameter estimation failed - no features remaining."
 
 	T((;
-		logGeneMean = logGeneMean[feature_mask],
+		logGeneMean = log_gene_mean[feature_mask],
 		beta0_estimate = β0[feature_mask],
 		beta1_estimate = β1[feature_mask],
 		theta_estimate = θ[feature_mask],
@@ -343,6 +350,7 @@ scparams_regularize(params::NamedTuple, bw) = scparams_regularize(NamedTuple,par
 	compute_scparams(X::AbstractSparseMatrix;
 	                 method = :poisson,
 	                 log_cell_counts,
+	                 log_gene_mean = loggenemean(X),
 	                 feature_mask,
 	                 feature_names = nothing,
 	                 verbose = true,
@@ -356,6 +364,7 @@ Returns the output parameter table as a NamedTuple with the columns.
 General:
 * `method` - Decides the algorithm for parameter inference. Can be either `:poisson` or `:nb` (negative binomial). We recommend `:poisson`, which first makes `poission` estimates and then estimates disperation afterwards.
 * `log_cell_counts` - Vector with `log10(max(1,c))` where `c` is the total read count of a cell.
+* `log_gene_mean` - Vector with `log10.(exp.(lgm).-1)` where `lgm` is the mean of `log1p` values across cells.
 * `feature_mask` - Vector of booleans deciding which features to use.
 * `feature_names` - Vector with name for each feature. Only used for `@warn` messages. Set to `nothing` to not report feature names.
 * `verbose` - If true, will show progress bar and some other information.
@@ -367,9 +376,9 @@ Threading details:
 
 See also: [`scparams`](@ref)
 """
-function compute_scparams(X; verbose=true, kwargs...)
+function compute_scparams(::Type{Tv}, ::Type{Ti}, X; verbose=true, log_gene_mean=loggenemean(X), kwargs...) where {Tv,Ti}
 	# 1. fit per gene
-	params = scparams_estimate(NamedTuple, X; verbose, kwargs...)
+	params = scparams_estimate(NamedTuple, Tv, Ti, X; verbose, log_gene_mean, kwargs...)
 
 	# 2. detect outliers
 	scparams_detect_outliers!(params)
@@ -384,7 +393,7 @@ function compute_scparams(X; verbose=true, kwargs...)
 
 	params
 end
-
+compute_scparams(X::AbstractSparseMatrix{Tv,Ti}; kwargs...) where {Tv,Ti} = compute_scparams(Tv, Ti, X; kwargs...)
 
 
 """
