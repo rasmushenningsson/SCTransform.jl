@@ -1,3 +1,14 @@
+# A simple wrapper around ProgressMeter.Progress. But this way we can also support other backends for displaying progress.
+mutable struct ProgressBar
+	desc::String
+	p::Union{Nothing,Progress}
+end
+ProgressBar(desc) = ProgressBar(desc, nothing)
+
+(pb::ProgressBar)(n::Int) = pb.p = Progress(n; pb.desc)
+(pb::ProgressBar)() = next!(pb.p)
+(pb::ProgressBar)(::Val{:done}) = finish!(pb.p)
+
 
 
 # Assumes each column is a gene
@@ -74,7 +85,7 @@ function scparams_poisson_worker(channel, progress, N, feature_mask, log_cell_co
 					outlier[j2] = true
 				end
 			end
-			isnothing(progress) || next!(progress)
+			isnothing(progress) || progress()
 		end
 		yield() # is this needed when we are using a channel?
 	end
@@ -100,7 +111,7 @@ function scparams_nb_worker(channel, progress, N, feature_mask, log_cell_counts,
 					outlier[j2] = true
 				end
 			end
-			isnothing(progress) || next!(progress)
+			isnothing(progress) || progress()
 		end
 		yield() # is this needed when we are using a channel?
 	end
@@ -173,6 +184,7 @@ function scparams_estimate(::Type{T}, ::Type{Tv}, ::Type{Ti}, X;
                            nthreads = Threads.nthreads(),
                            channel_size = nthreads*4,
                            verbose = true,
+                           progress = nothing,
                            kwargs...,
                           ) where {T,Tv<:Real,Ti<:Integer}
 	nthreads = max(nthreads,1)
@@ -189,7 +201,7 @@ function scparams_estimate(::Type{T}, ::Type{Tv}, ::Type{Ti}, X;
 	outlier = fill(false, P) # NB: Create Vector{Bool} instead of BitVector to avoid data races between worker threads!!!
 
 
-	progress = verbose ? Progress(P; desc="Estimating sc parameters: ") : nothing
+	isnothing(progress) || progress(P)
 
 
 	channel = Channel{Union{Nothing,Tuple{SparseMatrixCSC{Tv,Ti},Int}}}(channel_size)
@@ -219,7 +231,7 @@ function scparams_estimate(::Type{T}, ::Type{Tv}, ::Type{Ti}, X;
 	end
 
 	wait.(workers)
-	isnothing(progress) || finish!(progress)
+	isnothing(progress) || progress(Val(:done))
 
 
 	# report failed features
@@ -354,6 +366,7 @@ scparams_regularize(params::NamedTuple, bw) = scparams_regularize(NamedTuple,par
 	                 feature_mask,
 	                 feature_names = nothing,
 	                 verbose = true,
+	                 progress = nothing,
 	                 chunk_size = 100,
 	                 nthreads = Threads.nthreads(),
 	                 channel_size = nthreads*4)
@@ -368,6 +381,7 @@ General:
 * `feature_mask` - Vector of booleans deciding which features to use.
 * `feature_names` - Vector with name for each feature. Only used for `@warn` messages. Set to `nothing` to not report feature names.
 * `verbose` - If true, will show progress bar and some other information.
+* `progress` - Callback function that will be called for progress-related events.
 
 Threading details:
 * `chunk_size` - The number of features to process in one chunk.
@@ -378,7 +392,7 @@ See also: [`scparams`](@ref)
 """
 function compute_scparams(::Type{Tv}, ::Type{Ti}, X; verbose=true, log_gene_mean=loggenemean(X), kwargs...) where {Tv,Ti}
 	# 1. fit per gene
-	params = scparams_estimate(NamedTuple, Tv, Ti, X; verbose, log_gene_mean, kwargs...)
+	params = scparams_estimate(NamedTuple, Tv, Ti, X; log_gene_mean, kwargs...)
 
 	# 2. detect outliers
 	scparams_detect_outliers!(params)
@@ -419,7 +433,8 @@ By default, the results are cached in a scratch space using `Scratch.jl`, to avo
 General:
 * `method` - Decides the algorithm for parameter inference. Can be either `:poisson` or `:nb` (negative binomial). We recommend `:poisson`, which first makes `poission` estimates and then estimates disperation afterwards.
 * `feature_names` - Vector with name for each feature. Only used for `@warn` messages. Defaults to `name` column in `features`, or `id` column if name doesn't exist. Set to `nothing` to not report feature names.
-* `verbose` - If true, will show progress bar and some other information.
+* `verbose` - If true, some info will be displayed.
+* `show_progress` - Defaults to `verbose`. Set to true to show a progress bar.
 
 Feature selection:
 * `min_cells` - Only features with nonzero counts in at least `min_cells` cells are included.
@@ -460,6 +475,7 @@ function scparams(::Type{T}, X::AbstractSparseMatrix, features;
                   cache_read = use_cache,
                   cache_write = use_cache,
                   verbose = true,
+                  show_progress = verbose,
                   kwargs...) where T
 	P,N = size(X)
 	if feature_names !== nothing && length(feature_names) != P
@@ -489,8 +505,13 @@ function scparams(::Type{T}, X::AbstractSparseMatrix, features;
 		# NB: log_cell_counts should not be affected by min_cells_mask
 		log_cell_counts = logcellcounts(X, feature_mask_lcc)
 
+		if show_progress
+			progress = ProgressBar("Estimating sc parameters: ")
+		else
+			progress = nothing
+		end
 
-		params = compute_scparams(X; method, log_cell_counts, feature_mask, feature_names, verbose, kwargs...)
+		params = compute_scparams(X; method, log_cell_counts, feature_mask, feature_names, verbose, progress, kwargs...)
 
 		if cache_write
 			_scparams_cache_save(fn_cached, params, P, N, method)

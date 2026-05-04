@@ -1,6 +1,6 @@
 using Test
 using SCTransform
-using SCTransform: scparams_estimate, scparams_detect_outliers!, scparams_bandwidth, scparams_regularize
+using SCTransform: scparams_estimate, scparams_detect_outliers!, scparams_bandwidth, scparams_regularize, loggenemean
 using SingleCell10x
 using SparseArrays
 using Random
@@ -64,7 +64,8 @@ simple_logcellcounts(X::SparseMatrixCSC) = log10.(max.(1,vec(sum(X;dims=1))))
 			@testset "Non-regularized" begin
 				log_cell_counts = SCTransform.logcellcounts(X,trues(50))
 				feature_mask = vec(sum(!iszero, X; dims=2)) .>= 5
-				pnonreg = scparams_estimate(TableType, X; log_cell_counts, feature_mask, chunk_size=20, feature_names=f.name)
+				log_gene_mean = loggenemean(X)
+				pnonreg = scparams_estimate(TableType, Int, Int, X; log_cell_counts, log_gene_mean, feature_mask, chunk_size=20, feature_names=f.name)
 				@test pnonreg isa TableType
 
 				@test f.name[feature_mask] == pnonreg_ans.genename
@@ -91,8 +92,9 @@ simple_logcellcounts(X::SparseMatrixCSC) = log10.(max.(1,vec(sum(X;dims=1))))
 				f2 = TableType(SCTransform.subset_rows(f, f_ind)) # TODO: avoid using internal function
 
 				log_cell_counts = SCTransform.logcellcounts(X2,trues(length(f_ind)))
+				log_gene_mean = loggenemean(X2)
 				feature_mask = vec(sum(!iszero, X2; dims=2)) .>= 5
-				pnonreg = scparams_estimate(TableType, X2; log_cell_counts, feature_mask, chunk_size=19, feature_names=f2.name)
+				pnonreg = scparams_estimate(TableType, Int, Int, X2; log_cell_counts, log_gene_mean, feature_mask, chunk_size=19, feature_names=f2.name)
 				@test pnonreg isa TableType
 
 				@test f.name[f_ind][feature_mask] == pnonreg_ans2.genename
