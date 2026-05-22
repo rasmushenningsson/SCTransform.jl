@@ -64,63 +64,65 @@ end
 
 
 
-function scparams_poisson_worker(channel, progress, N, feature_mask, log_cell_counts, θ, β0, β1, θSE, outlier)
+function scparams_poisson_worker(channel, progress, tick, N, feature_mask, log_cell_counts, θ, β0, β1, θSE, outlier)
 	scratch = NBByPoissionScratch(N)
 
-	while true
-		item = take!(channel)
-		isnothing(item) && break # no more chunks to process
+	try
+		for item in channel # will exit when channel is closed
+			X,feature_offset = item
+			for j in 1:size(X,2)
+				isnothing(tick) || tick()
+				if feature_mask[j+feature_offset]
+					sparseY = X[:,j]
 
-
-		X,feature_offset = item
-		for j in 1:size(X,2)
-			if feature_mask[j+feature_offset]
-				sparseY = X[:,j]
-
-				j2 = j+feature_offset
-				try
-					θ[j2],β0[j2],β1[j2] = nbparamsbypoisson(sparseY,log_cell_counts,scratch=scratch)
-					θSE[j2] = thetastandarderror(sparseY,log_cell_counts,θ[j2],β0[j2],β1[j2],scratch=scratch)
-				catch e
-					outlier[j2] = true
+					j2 = j+feature_offset
+					try
+						θ[j2],β0[j2],β1[j2] = nbparamsbypoisson(sparseY,log_cell_counts,scratch=scratch)
+						θSE[j2] = thetastandarderror(sparseY,log_cell_counts,θ[j2],β0[j2],β1[j2],scratch=scratch)
+					catch e
+						outlier[j2] = true
+					end
 				end
+				isnothing(progress) || progress()
 			end
-			isnothing(progress) || progress()
 		end
-		yield() # is this needed when we are using a channel?
+	finally
+		close(channel) # If we got an exception, this informs the producer and other consumers that we should stop
 	end
 end
 
 
-function scparams_nb_worker(channel, progress, N, feature_mask, log_cell_counts, θ, β0, β1, θSE, outlier)
-	while true
-		item = take!(channel)
-		isnothing(item) && break # no more chunks to process
+function scparams_nb_worker(channel, progress, tick, N, feature_mask, log_cell_counts, θ, β0, β1, θSE, outlier)
+	try
+		for item in channel # will exit when channel is closed
+			X,feature_offset = item
+			for j in 1:size(X,2)
+				isnothing(tick) || tick()
+				if feature_mask[j+feature_offset]
+					sparseY = X[:,j]
 
-		X,feature_offset = item
-		for j in 1:size(X,2)
-			if feature_mask[j+feature_offset]
-				sparseY = X[:,j]
-
-				j2 = j+feature_offset
-				try
-					y = convert(Vector,sparseY) # TODO: get rid of conversion to full vector by fixing sparse version of nbparams
-					θ[j2],β0[j2],β1[j2] = nbparams(y,log_cell_counts)
-					θSE[j2] = thetastandarderror(sparseY,log_cell_counts,θ[j2],β0[j2],β1[j2])
-				catch e
-					outlier[j2] = true
+					j2 = j+feature_offset
+					try
+						y = convert(Vector,sparseY) # TODO: get rid of conversion to full vector by fixing sparse version of nbparams
+						θ[j2],β0[j2],β1[j2] = nbparams(y,log_cell_counts)
+						θSE[j2] = thetastandarderror(sparseY,log_cell_counts,θ[j2],β0[j2],β1[j2])
+					catch e
+						outlier[j2] = true
+					end
 				end
+				isnothing(progress) || progress()
 			end
-			isnothing(progress) || progress()
 		end
-		yield() # is this needed when we are using a channel?
+	finally
+		close(channel) # If we got an exception, this informs the producer and other consumers that we should stop
 	end
 end
 
 
 function gene_chunk_producer(channel, X::AbstractSparseMatrix{Tv,Ti};
                              feature_mask,
-                             chunk_size=100) where {Tv,Ti}
+                             chunk_size = 100,
+                             tick = nothing) where {Tv,Ti}
 	P,N = size(X)
 
 	colptr_curr = first.(nzrange.(Ref(X),1:N))
@@ -132,6 +134,7 @@ function gene_chunk_producer(channel, X::AbstractSparseMatrix{Tv,Ti};
 	nzval_scratch  = Vector{Tv}() # will grow but get reused between chunks
 
 	for feature_range in Iterators.partition(1:P, chunk_size)
+		isnothing(tick) || tick()
 		if any(feature_mask[feature_range])
 			colptr_chunk = Vector{Ti}(undef, N+1)
 
@@ -159,7 +162,7 @@ function gene_chunk_producer(channel, X::AbstractSparseMatrix{Tv,Ti};
 			chunk = SparseMatrixCSC(length(feature_range), N, colptr_chunk, rowval_chunk, nzval_chunk)
 			chunk = permutedims(chunk,(2,1)) # transpose
 
-			push!(channel, (chunk,first(feature_range)-1))
+			put!(channel, (chunk,first(feature_range)-1)) # NB: Will throw if waiting here and the channel is closed
 		else # no features used in this chunk, just step colptr forward
 			# TODO: Do a binary search instead?
 			#       Or better, skip multiple chunks at the same time if possible. (Lazy skipping + binary search when we need to.)
@@ -185,6 +188,7 @@ function scparams_estimate(::Type{T}, ::Type{Tv}, ::Type{Ti}, X;
                            channel_size = nthreads*4,
                            verbose = true,
                            progress = nothing,
+                           tick = nothing,
                            kwargs...,
                           ) where {T,Tv<:Real,Ti<:Integer}
 	nthreads = max(nthreads,1)
@@ -206,31 +210,27 @@ function scparams_estimate(::Type{T}, ::Type{Tv}, ::Type{Ti}, X;
 
 	channel = Channel{Union{Nothing,Tuple{SparseMatrixCSC{Tv,Ti},Int}}}(channel_size)
 
-
 	workers = map(1:nthreads) do _
 		if method==:poisson
-			Threads.@spawn scparams_poisson_worker(channel, progress,
+			Threads.@spawn scparams_poisson_worker(channel, progress, tick,
 			                                       N, feature_mask,# feature_names,
 			                                       log_cell_counts,
 			                                       θ, β0, β1, θSE, outlier)
 		elseif method==:nb
-			Threads.@spawn scparams_nb_worker(channel, progress,
+			Threads.@spawn scparams_nb_worker(channel, progress, tick,
 			                                  N, feature_mask,# feature_names,
 			                                  log_cell_counts,
 			                                  θ, β0, β1, θSE, outlier)
 		end
 	end
-
-
-	gene_chunk_producer(channel, X; feature_mask, kwargs...)
-
-
-	# Tell workers to stop
-	for i in 1:nthreads
-		push!(channel, nothing)
+	try
+		gene_chunk_producer(channel, X; feature_mask, tick, kwargs...)
+	finally
+		close(channel) # will stop worker tasks when done or an exception is thrown
 	end
 
 	wait.(workers)
+	any(istaskfailed, workers) && fetch.(workers) # This will rethrow from the first failed worker if any
 	isnothing(progress) || progress(Val(:done))
 
 
@@ -382,6 +382,7 @@ General:
 * `feature_names` - Vector with name for each feature. Only used for `@warn` messages. Set to `nothing` to not report feature names.
 * `verbose` - If true, will show progress bar and some other information.
 * `progress` - Callback function that will be called for progress-related events.
+* `tick` - Callback function that will be called regurarly (can e.g. be used to throw if a cancellation flag is set).
 
 Threading details:
 * `chunk_size` - The number of features to process in one chunk.
