@@ -19,6 +19,7 @@ using SparseArrays
 using Statistics
 using SpecialFunctions
 using Optim
+using NLSolversBase: only_fgh!
 using KernelDensitySJ
 using ProgressMeter
 using Scratch

@@ -1,13 +1,14 @@
 name = "SCTransform"
 uuid = "f56ea72b-d1ea-403e-9c0c-95d94e8a8532"
-authors = ["Rasmus Henningsson <rasmus.henningsson@med.lu.se>"]
 version = "0.4.0"
+authors = ["Rasmus Henningsson <rasmus.henningsson@med.lu.se>"]
 
 [deps]
 CodecZlib = "944b1d66-785c-5afd-91f1-9de20f533193"
 DelimitedFiles = "8bb1440f-4735-579b-a4ab-409b98df4dab"
 KernelDensitySJ = "49dc5b4e-6806-4504-b2cc-a81764e7a38b"
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
+NLSolversBase = "d41bc354-129a-5804-8e4c-c37616107c6c"
 Optim = "429524aa-4258-5aef-a3af-852621145aeb"
 ProgressMeter = "92933f4c-e287-5a05-a399-4b506db050ca"
 SHA = "ea8e919c-243c-51af-8825-aaa63cd721ce"
@@ -23,7 +24,8 @@ DataFrames = "0.21, 0.22, 1.0"
 DelimitedFiles = "1"
 KernelDensitySJ = "0.1.1, 0.2"
 LinearAlgebra = "1"
-Optim = "1.2"
+NLSolversBase = "8.0.0"
+Optim = "2"
 ProgressMeter = "1"
 SHA = "0.7, 1"
 Scratch = "1.1"
