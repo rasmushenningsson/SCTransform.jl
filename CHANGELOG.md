@@ -25,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 * Internal refactoring to make it work better with the upcoming SingleCellProjections.jl v0.5.
+* Require at least Julia 1.10 (current LTS).
 
 ## [0.3.1] - 2024-12-31
 
