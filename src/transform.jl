@@ -48,7 +48,7 @@ function sctransform(X::AbstractSparseMatrix, features, params;
 	any(isnothing, feature_ind) && throw(DomainError("Feature ids in `params` does not match ids in `features`."))
 
 
-	logCellCounts = logcellcounts(X, feature_mask)[cell_ind]
+	log_cell_counts = logcellcounts(X, feature_mask)[cell_ind]
 
 	# TODO: Do not create intermediate X[feature_ind,cell_ind]
 	X = X[feature_ind,cell_ind]
@@ -59,7 +59,7 @@ function sctransform(X::AbstractSparseMatrix, features, params;
 		for i in 1:size(Z,1)
 			g,c = transpose ? (j,i) : (i,j)
 
-			μ = exp(β0[g] + β1[g]*logCellCounts[c])
+			μ = exp(β0[g] + β1[g]*log_cell_counts[c])
 			σ = sqrt(μ + μ^2/θ[g])
 
 			z = (Z[i,j] - μ)/σ

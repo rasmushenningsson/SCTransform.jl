@@ -1,3 +1,14 @@
+# A simple wrapper around ProgressMeter.Progress. But this way we can also support other backends for displaying progress.
+mutable struct ProgressBar
+	desc::String
+	p::Union{Nothing,Progress}
+end
+ProgressBar(desc) = ProgressBar(desc, nothing)
+
+(pb::ProgressBar)(n::Int) = pb.p = Progress(n; pb.desc)
+(pb::ProgressBar)() = next!(pb.p)
+(pb::ProgressBar)(::Val{:done}) = finish!(pb.p)
+
 
 
 # Assumes each column is a gene
@@ -53,110 +64,66 @@ end
 
 
 
-function scparams_poisson_worker(channel, progress, N, feature_mask, feature_names, logCellCounts, min_cells, θ, β0, β1, θSE, kept)
+function scparams_poisson_worker(channel, progress, tick, N, feature_mask, log_cell_counts, θ, β0, β1, θSE, outlier)
 	scratch = NBByPoissionScratch(N)
 
-	while true
-		item = take!(channel)
-		isnothing(item) && break # no more chunks to process
+	try
+		for item in channel # will exit when channel is closed
+			X,feature_offset = item
+			for j in 1:size(X,2)
+				isnothing(tick) || tick()
+				if feature_mask[j+feature_offset]
+					sparseY = X[:,j]
 
-
-		X,feature_offset = item
-		for j in 1:size(X,2)
-			if length(nzrange(X,j)) >= min_cells && feature_mask[j+feature_offset]
-				sparseY = X[:,j]
-
-				j2 = j+feature_offset
-				try
-					θ[j2],β0[j2],β1[j2] = nbparamsbypoisson(sparseY,logCellCounts,scratch=scratch)
-					θSE[j2] = thetastandarderror(sparseY,logCellCounts,θ[j2],β0[j2],β1[j2],scratch=scratch)
-					kept[j2] = true
-				catch e
-					@warn "Failed to compute SCTransform parameters for feature $(feature_names[j2]), skipping."
+					j2 = j+feature_offset
+					try
+						θ[j2],β0[j2],β1[j2] = nbparamsbypoisson(sparseY,log_cell_counts,scratch=scratch)
+						θSE[j2] = thetastandarderror(sparseY,log_cell_counts,θ[j2],β0[j2],β1[j2],scratch=scratch)
+					catch e
+						outlier[j2] = true
+					end
 				end
+				isnothing(progress) || progress()
 			end
-			isnothing(progress) || next!(progress)
 		end
-		yield() # is this needed when we are using a channel?
+	finally
+		close(channel) # If we got an exception, this informs the producer and other consumers that we should stop
 	end
 end
 
 
-function scparams_nb_worker(channel, progress, N, feature_mask, feature_names, logCellCounts, min_cells, θ, β0, β1, θSE, kept)
-	while true
-		item = take!(channel)
-		isnothing(item) && break # no more chunks to process
+function scparams_nb_worker(channel, progress, tick, N, feature_mask, log_cell_counts, θ, β0, β1, θSE, outlier)
+	try
+		for item in channel # will exit when channel is closed
+			X,feature_offset = item
+			for j in 1:size(X,2)
+				isnothing(tick) || tick()
+				if feature_mask[j+feature_offset]
+					sparseY = X[:,j]
 
-		X,feature_offset = item
-		for j in 1:size(X,2)
-			if length(nzrange(X,j)) >= min_cells && feature_mask[j+feature_offset]
-				sparseY = X[:,j]
-
-				j2 = j+feature_offset
-				try
-					y = convert(Vector,sparseY) # TODO: get rid of conversion to full vector by fixing sparse version of nbparams
-					θ[j2],β0[j2],β1[j2] = nbparams(y,logCellCounts)
-					θSE[j2] = thetastandarderror(sparseY,logCellCounts,θ[j2],β0[j2],β1[j2])
-					kept[j2] = true
-				catch e
-					@warn "Failed to compute SCTransform parameters for feature $(feature_names[j2]), skipping."
+					j2 = j+feature_offset
+					try
+						y = convert(Vector,sparseY) # TODO: get rid of conversion to full vector by fixing sparse version of nbparams
+						θ[j2],β0[j2],β1[j2] = nbparams(y,log_cell_counts)
+						θSE[j2] = thetastandarderror(sparseY,log_cell_counts,θ[j2],β0[j2],β1[j2])
+					catch e
+						outlier[j2] = true
+					end
 				end
+				isnothing(progress) || progress()
 			end
-			isnothing(progress) || next!(progress)
 		end
-		yield() # is this needed when we are using a channel?
+	finally
+		close(channel) # If we got an exception, this informs the producer and other consumers that we should stop
 	end
 end
 
 
-
-function scparams_estimate(::Type{T}, X::AbstractSparseMatrix{Tv,Ti};
-                           method=:poisson,
-                           min_cells::Integer=5,
-                           feature_mask = trues(size(X,1)),
-                           feature_names,
-                           chunk_size=100,
-                           nthreads=Threads.nthreads(),
-                           channel_size=nthreads*4,
-                           verbose=true,
-                          ) where {T,Tv<:Real,Ti<:Integer}
-	nthreads = max(nthreads,1)
+function gene_chunk_producer(channel, X::AbstractSparseMatrix{Tv,Ti};
+                             feature_mask,
+                             chunk_size = 100,
+                             tick = nothing) where {Tv,Ti}
 	P,N = size(X)
-
-	logCellCounts=logcellcounts(X, feature_mask)
-	logGeneMean=loggenemean(X)
-
-	@assert method in (:poisson, :nb) "Method must be :poisson or :nb"
-
-	@assert length(feature_mask) == P
-
-	θ    = zeros(P)
-	β0   = zeros(P)
-	β1   = zeros(P)
-	θSE  = zeros(P)
-	kept = falses(P)
-
-	progress = verbose ? Progress(P; desc="Estimating sc parameters: ") : nothing
-
-
-	channel = Channel{Union{Nothing,Tuple{SparseMatrixCSC{Tv,Ti},Int}}}(channel_size)
-
-
-	workers = map(1:nthreads) do _
-		if method==:poisson
-			Threads.@spawn scparams_poisson_worker(channel, progress,
-			                                       N, feature_mask, feature_names,
-			                                       logCellCounts, min_cells,
-			                                       θ, β0, β1, θSE, kept)
-		elseif method==:nb
-			Threads.@spawn scparams_nb_worker(channel, progress,
-			                                  N, feature_mask, feature_names,
-			                                  logCellCounts, min_cells,
-			                                  θ, β0, β1, θSE, kept)
-		end
-	end
-
-
 
 	colptr_curr = first.(nzrange.(Ref(X),1:N))
 	colptr_end = last.(nzrange.(Ref(X),1:N))
@@ -167,6 +134,7 @@ function scparams_estimate(::Type{T}, X::AbstractSparseMatrix{Tv,Ti};
 	nzval_scratch  = Vector{Tv}() # will grow but get reused between chunks
 
 	for feature_range in Iterators.partition(1:P, chunk_size)
+		isnothing(tick) || tick()
 		if any(feature_mask[feature_range])
 			colptr_chunk = Vector{Ti}(undef, N+1)
 
@@ -194,7 +162,7 @@ function scparams_estimate(::Type{T}, X::AbstractSparseMatrix{Tv,Ti};
 			chunk = SparseMatrixCSC(length(feature_range), N, colptr_chunk, rowval_chunk, nzval_chunk)
 			chunk = permutedims(chunk,(2,1)) # transpose
 
-			push!(channel, (chunk,first(feature_range)-1))
+			put!(channel, (chunk,first(feature_range)-1)) # NB: Will throw if waiting here and the channel is closed
 		else # no features used in this chunk, just step colptr forward
 			# TODO: Do a binary search instead?
 			#       Or better, skip multiple chunks at the same time if possible. (Lazy skipping + binary search when we need to.)
@@ -207,18 +175,84 @@ function scparams_estimate(::Type{T}, X::AbstractSparseMatrix{Tv,Ti};
 			end
 		end
 	end
+end
 
-	# Tell workers to stop
-	for i in 1:nthreads
-		push!(channel, nothing)
+
+function scparams_estimate(::Type{T}, ::Type{Tv}, ::Type{Ti}, X;
+                           method=:poisson,
+                           feature_mask = trues(size(X,1)),
+                           feature_names = nothing,
+                           log_cell_counts,
+                           log_gene_mean,
+                           nthreads = Threads.nthreads(),
+                           channel_size = nthreads*4,
+                           verbose = true,
+                           progress = nothing,
+                           tick = nothing,
+                           kwargs...,
+                          ) where {T,Tv<:Real,Ti<:Integer}
+	nthreads = max(nthreads,1)
+	P,N = size(X)
+
+	@assert method in (:poisson, :nb) "Method must be :poisson or :nb"
+
+	@assert length(feature_mask) == P
+
+	θ    = zeros(P)
+	β0   = zeros(P)
+	β1   = zeros(P)
+	θSE  = zeros(P)
+	outlier = fill(false, P) # NB: Create Vector{Bool} instead of BitVector to avoid data races between worker threads!!!
+
+
+	isnothing(progress) || progress(P)
+
+
+	channel = Channel{Union{Nothing,Tuple{SparseMatrixCSC{Tv,Ti},Int}}}(channel_size)
+
+	workers = map(1:nthreads) do _
+		if method==:poisson
+			Threads.@spawn scparams_poisson_worker(channel, progress, tick,
+			                                       N, feature_mask,# feature_names,
+			                                       log_cell_counts,
+			                                       θ, β0, β1, θSE, outlier)
+		elseif method==:nb
+			Threads.@spawn scparams_nb_worker(channel, progress, tick,
+			                                  N, feature_mask,# feature_names,
+			                                  log_cell_counts,
+			                                  θ, β0, β1, θSE, outlier)
+		end
+	end
+	try
+		gene_chunk_producer(channel, X; feature_mask, tick, kwargs...)
+	finally
+		close(channel) # will stop worker tasks when done or an exception is thrown
 	end
 
 	wait.(workers)
-	isnothing(progress) || finish!(progress)
+	any(istaskfailed, workers) && fetch.(workers) # This will rethrow from the first failed worker if any
+	isnothing(progress) || progress(Val(:done))
 
-	@assert any(kept) "SC Parameter estimation failed - no features remaining."
 
-	T((; featureInd=(1:P)[kept], logGeneMean=logGeneMean[kept], beta0_estimate=β0[kept], beta1_estimate=β1[kept], theta_estimate=θ[kept], thetaSE_estimate=θSE[kept]))
+	# report failed features
+	if any(outlier)
+		if feature_names === nothing
+			@warn "Failed to compute SCTransform parameters for $(count(outlier[feature_mask]))/$(length(outlier[feature_mask])) features, these will be marked as outliers."
+		else
+			@warn "Failed to compute SCTransform parameters for the following features: $(join(feature_names[outlier],", ")), these will be marked as outliers."
+		end
+	end
+
+	@assert !all(outlier[feature_mask]) "SC Parameter estimation failed - no features remaining."
+
+	T((;
+		logGeneMean = log_gene_mean[feature_mask],
+		beta0_estimate = β0[feature_mask],
+		beta1_estimate = β1[feature_mask],
+		theta_estimate = θ[feature_mask],
+		thetaSE_estimate = θSE[feature_mask],
+		outlier = outlier[feature_mask],
+	 ))
 end
 
 
@@ -261,8 +295,12 @@ function windowedoutlierscore(x::AbstractVector, y::AbstractVector, d::Real)
 end
 
 
-function scparams_detect_outliers(::Type{T}, params) where T
-	mask = params.thetaSE_estimate.<=4 # flag extremely unreliable theta estimates as outliers
+function scparams_detect_outliers!(params)
+	# Flag a feature as an outlier if either:
+	# *	the nbparams estimate failed or
+	# *	the theta estimate is extremely unreliable
+	mask = (.!params.outlier) .& (params.thetaSE_estimate.<=4)
+
 	rows = (1:length(params.logGeneMean))[mask] # to match original rows later
 
 	# Work with sorted data
@@ -281,14 +319,11 @@ function scparams_detect_outliers(::Type{T}, params) where T
 
 	# Go back to original order
 	invpermute!(outliers, perm)
-	outliers2 = trues(length(params.featureInd))
-	outliers2[rows] .= outliers
+	params.outlier .= true
+	params.outlier[rows] .= outliers
 
-	T(hcat_tables(params, (;outlier=outliers2)))
+	params
 end
-
-scparams_detect_outliers(params::T) where T = scparams_detect_outliers(T,params)
-scparams_detect_outliers(params::NamedTuple) = scparams_detect_outliers(NamedTuple,params) # strip NamedTuple parameters
 
 
 
@@ -322,20 +357,74 @@ scparams_regularize(params::NamedTuple, bw) = scparams_regularize(NamedTuple,par
 
 
 
+
+"""
+	compute_scparams(X::AbstractSparseMatrix;
+	                 method = :poisson,
+	                 log_cell_counts,
+	                 log_gene_mean = loggenemean(X),
+	                 feature_mask,
+	                 feature_names = nothing,
+	                 verbose = true,
+	                 progress = nothing,
+	                 chunk_size = 100,
+	                 nthreads = Threads.nthreads(),
+	                 channel_size = nthreads*4)
+
+Low-level driver for computing SCTransform parameter estimates from the count matrix `X`, with features as rows and cells as columns.
+Returns the output parameter table as a NamedTuple with the columns.
+
+General:
+* `method` - Decides the algorithm for parameter inference. Can be either `:poisson` or `:nb` (negative binomial). We recommend `:poisson`, which first makes `poission` estimates and then estimates disperation afterwards.
+* `log_cell_counts` - Vector with `log10(max(1,c))` where `c` is the total read count of a cell.
+* `log_gene_mean` - Vector with `log10.(exp.(lgm).-1)` where `lgm` is the mean of `log1p` values across cells.
+* `feature_mask` - Vector of booleans deciding which features to use.
+* `feature_names` - Vector with name for each feature. Only used for `@warn` messages. Set to `nothing` to not report feature names.
+* `verbose` - If true, will show progress bar and some other information.
+* `progress` - Callback function that will be called for progress-related events.
+* `tick` - Callback function that will be called regurarly (can e.g. be used to throw if a cancellation flag is set).
+
+Threading details:
+* `chunk_size` - The number of features to process in one chunk.
+* `nthreads` - How many threads to use from parameter estimation.
+* `channel_size` - How many chunks to keep in the queue.
+
+See also: [`scparams`](@ref)
+"""
+function compute_scparams(::Type{Tv}, ::Type{Ti}, X; verbose=true, log_gene_mean=loggenemean(X), kwargs...) where {Tv,Ti}
+	# 1. fit per gene
+	params = scparams_estimate(NamedTuple, Tv, Ti, X; log_gene_mean, kwargs...)
+
+	# 2. detect outliers
+	scparams_detect_outliers!(params)
+
+	# 3. Compute bandwidth, ignoring outlier values
+	# NB: In the SCTransform paper, this was multiplied by 3. However, because of different scaling in ksmooth, a factor of quantile(Normal(),0.75)/0.25 ≈ 2.6979590007843273 would have been correct. Since gaussiansmoothing below uses the same scaling as bwsj, we do not rescale.
+	bw = scparams_bandwidth(params) # TODO: pass on bwsj kwargs?
+	verbose && @info "Bandwidth $bw"
+
+	# 4. Evaluate smoothed function at all genes
+	params = scparams_regularize(NamedTuple, params, bw)
+
+	params
+end
+compute_scparams(X::AbstractSparseMatrix{Tv,Ti}; kwargs...) where {Tv,Ti} = compute_scparams(Tv, Ti, X; kwargs...)
+
+
 """
 	scparams([T], X::AbstractSparseMatrix, features;
-	         method=:poisson,
-	         min_cells::Integer=5,
+	         method = :poisson,
+	         min_cells = 5,
 	         feature_type,
 	         feature_mask,
 	         feature_names,
-	         use_cache=true,
-	         cache_read=use_cache,
-	         cache_write=use_cache,
-	         verbose=true,
-	         chunk_size=100,
-	         nthreads=Threads.nthreads(),
-	         channel_size=nthreads*4)
+	         use_cache = true,
+	         cache_read = use_cache,
+	         cache_write = use_cache,
+	         verbose = true,
+	         chunk_size = 100,
+	         nthreads = Threads.nthreads(),
+	         channel_size = nthreads*4)
 
 Compute SCTransform parameter estimates from the count matrix `X`, with features as rows and cells as columns.
 `features` should be a table (e.g. DataFrame or NamedTuple) with feature annotations.
@@ -344,8 +433,9 @@ By default, the results are cached in a scratch space using `Scratch.jl`, to avo
 
 General:
 * `method` - Decides the algorithm for parameter inference. Can be either `:poisson` or `:nb` (negative binomial). We recommend `:poisson`, which first makes `poission` estimates and then estimates disperation afterwards.
-* `feature_names` - Vector with name for each feature. Only used for `@warn` messages. Defaults to `name` column in `features`, or `id` column if name doesn't exist.
-* `verbose` - If true, will show progress bar and some other information.
+* `feature_names` - Vector with name for each feature. Only used for `@warn` messages. Defaults to `name` column in `features`, or `id` column if name doesn't exist. Set to `nothing` to not report feature names.
+* `verbose` - If true, some info will be displayed.
+* `show_progress` - Defaults to `verbose`. Set to true to show a progress bar.
 
 Feature selection:
 * `min_cells` - Only features with nonzero counts in at least `min_cells` cells are included.
@@ -378,28 +468,34 @@ See also: [`sctransform`](@ref)
 """
 function scparams(::Type{T}, X::AbstractSparseMatrix, features;
                   method=:poisson,
-                  min_cells::Int=5,
+                  min_cells = 5,
                   feature_type = hasproperty(features, :feature_type) ? "Gene Expression" : nothing,
                   feature_mask = feature_type !== nothing ? features.feature_type.==feature_type : trues(size(X,1)),
                   feature_names = hasproperty(features,:name) ? features.name : features.id,
-                  use_cache=true,
-                  cache_read=use_cache,
-                  cache_write=use_cache,
-                  verbose=true,
+                  use_cache = true,
+                  cache_read = use_cache,
+                  cache_write = use_cache,
+                  verbose = true,
+                  show_progress = verbose,
                   kwargs...) where T
 	P,N = size(X)
-	length(feature_names) == P || throw(DimensionMismatch("The number of rows in the count matrix and the number of features do not match."))
-	feature_mask = convert(BitVector, feature_mask)
+	if feature_names !== nothing && length(feature_names) != P
+		throw(DimensionMismatch("The number of rows in the count matrix and the number of features do not match."))
+	end
+
+	feature_mask_lcc = convert(BitVector, feature_mask) # mask for computing log_cell_counts
+	min_cells_mask = vec(sum(!iszero, X; dims=2)) .>= min_cells
+	feature_mask = feature_mask_lcc .& min_cells_mask # mask for which features to estimate scparams for
 
 	if cache_read || cache_write
-		h = _scparams_checksum(X,method,min_cells,feature_mask)
+		h = _scparams_checksum(X, method, feature_mask_lcc, feature_mask)
 		fn_cached = joinpath(scparams_scratch_space[],string(h,".tsv.gz"))
 	end
 
 	# check if the results is already in the cache
 	params = nothing
 	if cache_read && isfile(fn_cached)
-		params = _scparams_cache_load(fn_cached, P, N, method, min_cells)
+		params = _scparams_cache_load(fn_cached, P, N, method)
 		if params !== nothing
 			verbose && @info "SCTransform parameters loaded from cache."
 			touch(fn_cached) # update file timestamp (in case we want to remove old cached files later)
@@ -407,28 +503,24 @@ function scparams(::Type{T}, X::AbstractSparseMatrix, features;
 	end
 
 	if params === nothing
-		# 1. fit per gene
-		params = scparams_estimate(NamedTuple, X; method, min_cells, feature_mask, feature_names, verbose, kwargs...)
+		# NB: log_cell_counts should not be affected by min_cells_mask
+		log_cell_counts = logcellcounts(X, feature_mask_lcc)
 
-		# 2. detect outliers
-		params = scparams_detect_outliers(NamedTuple, params)
+		if show_progress
+			progress = ProgressBar("Estimating sc parameters: ")
+		else
+			progress = nothing
+		end
 
-		# 3. Compute bandwidth, ignoring outlier values
-		# NB: In the SCTransform paper, this was multiplied by 3. However, because of different scaling in ksmooth, a factor of quantile(Normal(),0.75)/0.25 ≈ 2.6979590007843273 would have been correct. Since gaussiansmoothing below uses the same scaling as bwsj, we do not rescale.
-		bw = scparams_bandwidth(params) # TODO: pass on bwsj kwargs?
-		verbose && @info "Bandwidth $bw"
-
-		# 4. Evaluate smoothed function at all genes
-		params = scparams_regularize(NamedTuple, params, bw)
+		params = compute_scparams(X; method, log_cell_counts, feature_mask, feature_names, verbose, progress, kwargs...)
 
 		if cache_write
-			_scparams_cache_save(fn_cached, params, P, N, method, min_cells)
+			_scparams_cache_save(fn_cached, params, P, N, method)
 		end
 	end
 
 	# 5. Combine with feature annotations
-	features_subset = subset_rows(features,params.featureInd)
-	params = remove_columns(params, (:featureInd,))
+	features_subset = subset_rows(features, feature_mask)
 	T(hcat_tables(features_subset, params))
 end
 

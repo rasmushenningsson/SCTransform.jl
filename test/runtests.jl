@@ -1,6 +1,6 @@
 using Test
 using SCTransform
-using SCTransform: scparams_estimate, scparams_detect_outliers, scparams_bandwidth, scparams_regularize
+using SCTransform: scparams_estimate, scparams_detect_outliers!, scparams_bandwidth, scparams_regularize, loggenemean
 using SingleCell10x
 using SparseArrays
 using Random
@@ -62,10 +62,13 @@ simple_logcellcounts(X::SparseMatrixCSC) = log10.(max.(1,vec(sum(X;dims=1))))
 
 		@testset "TableType=$TableType" for TableType in (NamedTuple, DataFrame)
 			@testset "Non-regularized" begin
-				pnonreg = scparams_estimate(TableType, X; chunk_size=20, feature_names=f.name)
+				log_cell_counts = SCTransform.logcellcounts(X,trues(50))
+				feature_mask = vec(sum(!iszero, X; dims=2)) .>= 5
+				log_gene_mean = loggenemean(X)
+				pnonreg = scparams_estimate(TableType, Int, Int, X; log_cell_counts, log_gene_mean, feature_mask, chunk_size=20, feature_names=f.name)
 				@test pnonreg isa TableType
 
-				@test f.name[pnonreg.featureInd] == pnonreg_ans.genename
+				@test f.name[feature_mask] == pnonreg_ans.genename
 
 				@test pnonreg.logGeneMean ≈ gm_ans
 				@test pnonreg.beta0_estimate ≈ pnonreg_ans.beta0
@@ -88,10 +91,13 @@ simple_logcellcounts(X::SparseMatrixCSC) = log10.(max.(1,vec(sum(X;dims=1))))
 				X2 = X[f_ind,:]
 				f2 = TableType(SCTransform.subset_rows(f, f_ind)) # TODO: avoid using internal function
 
-				pnonreg = scparams_estimate(TableType, X2; chunk_size=19, feature_names=f2.name)
+				log_cell_counts = SCTransform.logcellcounts(X2,trues(length(f_ind)))
+				log_gene_mean = loggenemean(X2)
+				feature_mask = vec(sum(!iszero, X2; dims=2)) .>= 5
+				pnonreg = scparams_estimate(TableType, Int, Int, X2; log_cell_counts, log_gene_mean, feature_mask, chunk_size=19, feature_names=f2.name)
 				@test pnonreg isa TableType
 
-				@test f.name[f_ind][pnonreg.featureInd] == pnonreg_ans2.genename
+				@test f.name[f_ind][feature_mask] == pnonreg_ans2.genename
 
 				@test pnonreg.logGeneMean ≈ gm_ans2
 				@test pnonreg.beta0_estimate ≈ pnonreg_ans2.beta0
@@ -99,17 +105,17 @@ simple_logcellcounts(X::SparseMatrixCSC) = log10.(max.(1,vec(sum(X;dims=1))))
 				@test pnonreg.theta_estimate ≈ pnonreg_ans2.theta atol=0.5
 
 
-				pnonreg2 = scparams_detect_outliers(pnonreg)
-				@test pnonreg2 isa TableType
+				scparams_detect_outliers!(pnonreg)
+				@test pnonreg isa TableType
 
-				bw = scparams_bandwidth(pnonreg2)
+				bw = scparams_bandwidth(pnonreg)
 				@test bw ≈ bw_ans2 rtol=0.1
 
 				# --- Inexact comparisons below, since the bandwidths etc. differ a bit ---
-				preg = scparams_regularize(pnonreg2,bw)
+				preg = scparams_regularize(pnonreg,bw)
 				@test preg isa TableType
 
-				@test f.name[f_ind][preg.featureInd] == preg_ans2.genename
+				@test f.name[f_ind][feature_mask] == preg_ans2.genename
 
 				@test preg.logGeneMean ≈ gm_ans2
 				@test preg.beta0 ≈ preg_ans2.beta0 norm=maxnorm atol=0.2 # We might be able to tighten this
@@ -120,7 +126,6 @@ simple_logcellcounts(X::SparseMatrixCSC) = log10.(max.(1,vec(sum(X;dims=1))))
 				@test preg2 isa TableType
 
 				@test preg2.name == pnonreg_ans2.genename
-				@test !hasproperty(preg2,:featureInd)
 
 				@test preg2.logGeneMean ≈ gm_ans2
 				@test preg2.beta0 ≈ preg_ans2.beta0 norm=maxnorm atol=0.2 # We might be able to tighten this
