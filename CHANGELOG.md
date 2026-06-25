@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-06-25
+
 ### Breaking
 
 * Features for which the parameter estimation fails (very rare) are now marked as outliers instead of being removed. For this reason, previously cached parameters will be recomputed.
@@ -19,6 +21,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 * Fix potential (but unlikely) data race due to a BitVector being accessed from multiple threads.
 * Failed inference is now report with one warning instead of one per failed feature.
+
+### Changed
+
+* Internal refactoring to make it work better with the upcoming SingleCellProjections.jl v0.5.
 
 ## [0.3.1] - 2024-12-31
 
