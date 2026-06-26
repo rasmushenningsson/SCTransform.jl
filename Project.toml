@@ -1,6 +1,6 @@
 name = "SCTransform"
 uuid = "f56ea72b-d1ea-403e-9c0c-95d94e8a8532"
-version = "0.4.0"
+version = "0.4.1"
 authors = ["Rasmus Henningsson <rasmus.henningsson@med.lu.se>"]
 
 [deps]
@@ -24,8 +24,8 @@ DataFrames = "0.21, 0.22, 1.0"
 DelimitedFiles = "1"
 KernelDensitySJ = "0.1.1, 0.2"
 LinearAlgebra = "1"
-NLSolversBase = "8.0.0"
-Optim = "2"
+NLSolversBase = "7, 8"
+Optim = "1.2, 2"
 ProgressMeter = "1"
 SHA = "0.7, 1"
 Scratch = "1.1"

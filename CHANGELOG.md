@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-06-25
+
+### Fixed
+
+* Loosen compat with Optim (to 1.2,2), and NLSolversBase to (7,8).
+
 ## [0.4.0] - 2026-06-25
 
 ### Breaking
